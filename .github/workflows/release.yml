@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: Validate tag version against pyproject.toml
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            PY_VERSION=$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+            echo "Tag version: $TAG_VERSION | pyproject.toml version: $PY_VERSION"
+            if [[ "$TAG_VERSION" != "$PY_VERSION" ]]; then
+              echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml version ($PY_VERSION)"
+              exit 1
+            fi
+          fi
+
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [validate, checks]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Sync workspace
+        run: uv sync --all-extras --dev --frozen
+
+      - name: Build packages
+        run: uv build --out-dir dist
+
+      - name: Generate Checksums
+        run: |
+          (cd dist && sha256sum *.tar.gz *.whl) > SHA256SUMS
+
+      - name: Extract Changelog Entry
+        id: extract_changelog
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          uv run python -c '
+          import os, re, uuid
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          with open("CHANGELOG.md") as f:
+              content = f.read()
+          pattern = rf"(?m)^##\s+\[?{re.escape(version)}\]?(.*?)(?=^##\s+\[?|\Z)"
+          match = re.search(pattern, content, re.DOTALL)
+          notes = ""
+          if match:
+              raw_notes = match.group(1).strip()
+              lines = raw_notes.splitlines()
+              if lines and (re.search(r"\d{4}-\d{1,2}-\d{1,2}", lines[0]) or not lines[0].strip()):
+                  notes = "\n".join(lines[1:]).strip()
+              else:
+                  notes = raw_notes
+          if not notes:
+              notes = "No changelog entry found for this release."
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              delimiter = f"EOF_{uuid.uuid4().hex}"
+              with open(github_output, "a") as f:
+                  f.write(f"body<<{delimiter}\n{notes}\n{delimiter}\n")
+          '
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Registro ${{ github.ref_name }}
+          body: ${{ steps.extract_changelog.outputs.body }}
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
+            SHA256SUMS
+          generate_release_notes: false
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

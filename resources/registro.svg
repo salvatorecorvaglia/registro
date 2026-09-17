@@ -1,0 +1,30 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#151A21"/>
+      <stop offset="100%" stop-color="#0B0E14"/>
+    </linearGradient>
+    <linearGradient id="cylinder" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Minimal Database Cylinder Outline -->
+  <g fill="none" stroke="url(#cylinder)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Top Disc -->
+    <ellipse cx="256" cy="150" rx="115" ry="42"/>
+    
+    <!-- Body Outline -->
+    <path d="M 141 150 V 350 C 141 392, 371 392, 371 350 V 150"/>
+  </g>
+
+  <!-- Centered Terminal Prompt >_ -->
+  <g fill="none" stroke="url(#cylinder)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 200 240 L 250 270 L 200 300"/>
+    <line x1="275" y1="300" x2="315" y2="300"/>
+  </g>
+</svg>

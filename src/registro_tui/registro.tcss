@@ -1,0 +1,308 @@
+/* Registro Textual CSS — main layout
+ *
+ * Layout:
+ *   ┌── Data Catalog ────┐┌──── Query Editor ──────────────────┐
+ *   │ schema tree         ││  Tab 1  Tab 2                     │
+ *   │                     ││  SQL editor with line numbers      │
+ *   │                     │├───────────────────────────────────┤
+ *   │                     ││ Display cap 10000        [Run]│
+ *   │                     │├──── Query Results ────────────────┤
+ *   │                     ││  data table                       │
+ *   └─────────────────────┘└───────────────────────────────────┘
+ *   ^q Quit  ? Help  ^↵ Run Query  ^r Refresh  ... (footer)
+ */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* ── Top-level wrapper ── */
+MainScreen {
+    height: 100%;
+    width: 100%;
+    layout: vertical;
+}
+
+/* ── 2-column grid: sidebar | workspace ── */
+#main-grid {
+    layout: grid;
+    grid-size: 2 1;
+    grid-columns: 28 1fr;
+    grid-rows: 1fr;
+    height: 1fr;
+    width: 100%;
+}
+
+/* Dynamic plugin rails (preserve existing behaviour) */
+#main-grid.with-right {
+    grid-size: 3 1;
+    grid-columns: 28 1fr auto;
+}
+
+/* A bottom rail needs a second grid row to live in. Without these the class was
+ * added by the app but matched nothing, leaving the rail as an unplaced third
+ * child of a 2x1 grid. */
+#main-grid.with-bottom {
+    grid-size: 2 2;
+    grid-rows: 1fr auto;
+}
+
+#main-grid.with-right.with-bottom {
+    grid-size: 3 2;
+    grid-columns: 28 1fr auto;
+    grid-rows: 1fr auto;
+}
+
+/* ── Sidebar: "Data Catalog" ── */
+#sidebar {
+    border: round $primary;
+    border-title-align: left;
+    border-title-color: $foreground;
+    border-title-style: bold;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+/* ── Right workspace ── */
+#workspace {
+    layout: vertical;
+    height: 100%;
+}
+
+/* ── Query Editor panel ── */
+#editor-panel {
+    border: round $primary;
+    border-title-align: left;
+    border-title-color: $foreground;
+    border-title-style: bold;
+    height: 2fr;
+    min-height: 8;
+}
+
+/* ── Action bar between editor and results ── */
+#action-bar {
+    height: 1;
+    background: $surface;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+#action-bar .action-label {
+    width: auto;
+    color: $foreground;
+    padding: 0 1;
+}
+
+/* A Textual Button is 3 rows tall by default (border top, content, border
+ * bottom), which the 1-row action bar clipped to a single visible row. Flat and
+ * single-row keeps the bar compact and the button whole. */
+#action-bar #run-query-btn {
+    dock: right;
+    min-width: 14;
+    height: 1;
+    border: none;
+    background: $primary;
+    color: $background;
+    text-style: bold;
+    padding: 0 1;
+}
+
+/* ── Query Results panel ── */
+#results-panel {
+    border: round $primary;
+    border-title-align: left;
+    border-title-color: $foreground;
+    border-title-style: bold;
+    height: 1fr;
+    min-height: 4;
+}
+
+/* ── Plugin rails ── */
+#right-rail {
+    width: 30;
+    border: round $primary 50%;
+    padding: 0 1;
+}
+
+#bottom-rail {
+    column-span: 2;
+    height: 10;
+    border-top: solid $primary 50%;
+    padding: 0 1;
+}
+
+#main-grid.with-right #bottom-rail {
+    column-span: 3;
+}
+
+/* ── Footer status bar — yellow/gold with keybinding shortcuts ── */
+#status-bar {
+    height: 1;
+    background: $warning;
+    color: $background;
+    padding: 0 1;
+    text-style: bold;
+    dock: bottom;
+    width: 100%;
+}
+
+/* ── Widget-level styles ── */
+
+SchemaTree {
+    height: 100%;
+}
+
+/* TabbedContent inside the editor panel */
+#query-tabs {
+    height: 100%;
+}
+
+SqlEditor {
+    height: 100%;
+}
+
+ResultsTable {
+    height: 100%;
+}
+
+/* ── Command Palette overlay ──
+ * Selector is the container's id, not a type selector: the screen class is
+ * `CommandPaletteScreen`, so a bare `CommandPalette` selector matched
+ * Textual's own built-in palette instead and this block never applied.
+ */
+#command-palette {
+    align: center top;
+    width: 70%;
+    height: auto;
+    border: thick $accent;
+    background: $surface;
+    padding: 1;
+    margin-top: 4;
+}
+
+#palette-input {
+    height: 3;
+    border: round $primary;
+}
+
+#palette-list {
+    height: 12;
+    border: round $primary;
+}
+
+/* ── Help, History & Connection modals ── */
+#help-modal,
+#history-modal,
+#connection-modal,
+#row-limit-modal {
+    align: center middle;
+    background: $surface;
+    border: thick $accent;
+    width: 80%;
+    max-width: 100;
+    height: 60%;
+    max-height: 28;
+    padding: 1 2;
+}
+
+#history-list {
+    height: 1fr;
+    border: round $primary;
+}
+
+#conn-input {
+    height: 3;
+    border: round $primary;
+    margin-bottom: 1;
+}
+
+#conn-presets {
+    height: 6;
+    border: round $primary;
+    margin-bottom: 1;
+    background: $surface;
+}
+
+#conn-submit-btn {
+    dock: bottom;
+    min-width: 14;
+    background: $primary;
+    color: $background;
+    text-style: bold;
+}
+
+#limit-input {
+    height: 3;
+    border: round $primary;
+    margin-bottom: 1;
+}
+
+/* Inline validation feedback. Modals used to reject bad input by silently
+ * returning, so pressing enter simply appeared to do nothing. */
+.modal-error {
+    color: $error;
+    height: auto;
+    text-style: bold;
+}
+
+#limit-submit-btn {
+    dock: bottom;
+    min-width: 14;
+    background: $primary;
+    color: $background;
+    text-style: bold;
+}
+
+/* ── Focus, hover and disabled states ──
+ * Registro is keyboard-first, so "where am I?" has to be answerable at a
+ * glance. Nothing here was styled before, leaving focus to whatever Textual's
+ * defaults happened to render against the theme's own colours.
+ */
+/* One idiom throughout: a border is declared up front and focus recolors it.
+ * These widgets all declare `border: round $primary` above, so `$accent` here
+ * swaps the colour without changing the box.
+ *
+ * `#schema-tree`, `#results-table` and `#sql-editor` are deliberately absent:
+ * they have no border of their own, so a `:focus` rule here *added* one and
+ * reflowed their content by two rows and two columns on every focus change.
+ * Their containing panels already signal focus via `:focus-within` below. */
+#history-list:focus,
+#palette-list:focus,
+#conn-presets:focus,
+#palette-input:focus,
+#conn-input:focus,
+#limit-input:focus {
+    border: round $accent;
+}
+
+/* The focused panel's title is highlighted too, so the active pane reads
+ * clearly even on terminals with a muted border palette. */
+#sidebar:focus-within,
+#editor-panel:focus-within,
+#results-panel:focus-within {
+    border: round $accent;
+    border-title-color: $accent;
+}
+
+Button:focus {
+    text-style: bold reverse;
+}
+
+Button:hover {
+    background: $accent;
+    color: $background;
+}
+
+Button:disabled {
+    text-style: dim;
+}
+
+ListView > ListItem.--highlight {
+    background: $primary 30%;
+}
+
+ListView:focus > ListItem.--highlight {
+    background: $primary 50%;
+    text-style: bold;
+}

@@ -1,0 +1,37 @@
+target-version = "py313"
+line-length = 100
+extend-exclude = [".venv", "build", "dist"]
+
+[lint]
+select = [
+    "E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PL",
+    "N", "C4", "PIE", "PT", "RET", "TID", "TCH", "PTH",
+]
+ignore = [
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic value
+    "PLR0915",  # too many statements
+    "PLR0912",  # too many branches
+    "PLR0911",  # too many returns
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101", "PT011"]
+# Typer derives the command-line interface from the function signature, so the
+# number of parameters is the number of options the command offers. Same
+# rationale as the global PLR0913 ignore, scoped to where the framework forces it.
+"src/registro_cli/**" = ["PLR0917"]
+"**/__init__.py" = ["F401"]
+
+[lint.isort]
+known-first-party = [
+    "registro_core",
+    "registro_engine",
+    "registro_adapters",
+    "registro_plugins",
+    "registro_cli",
+    "registro_tui",
+]
+
+[format]
+docstring-code-format = true

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: registro-postgres
+    environment:
+      POSTGRES_USER: registro
+      POSTGRES_PASSWORD: registro
+      POSTGRES_DB: registro
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seeds/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U registro"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mysql:
+    image: mysql:8
+    container_name: registro-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: registro
+      MYSQL_DATABASE: registro
+      MYSQL_USER: registro
+      MYSQL_PASSWORD: registro
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./seeds/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pregistro"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

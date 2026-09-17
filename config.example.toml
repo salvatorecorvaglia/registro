@@ -1,0 +1,48 @@
+# Registro configuration file
+#
+# Default location:  ~/.config/registro/config.toml
+# Layered overrides: REGISTRO_<section>__<field> env vars > CLI flags
+
+[ui]
+# Theme name. Built-ins: "monokai" (warm) | "nord" (cool).
+theme = "monokai"
+
+# Keymap. "default" or "vim".
+keymap = "default"
+
+# Rows per fetch batch from adapters → DataTable. Larger values trade
+# latency for throughput on big result sets.
+row_batch_size = 1000
+
+# Max rows held in the results grid. 0 means unlimited; a positive cap
+# protects memory on very large result sets.
+max_display_rows = 10000
+
+[engine]
+# Queries are aborted after this many seconds, and cancelled server-side.
+default_timeout_seconds = 60.0
+
+# Bounded retention of the local query-history store (~/.registro/history.db).
+max_history_entries = 1000
+
+# Pool size when the TUI is configured to route queries through a
+# ConnectionPool.
+pool_size = 5
+
+# Where the query-history store lives. Unset uses ~/.registro/history.db.
+# history_path = "~/.local/share/registro/history.db"
+
+[logging]
+# DEBUG | INFO | WARNING | ERROR
+level = "INFO"
+
+# Emit one JSON object per line. `null` auto-selects JSON in non-TTY
+# environments (CI/Docker) and pretty in a terminal.
+# json_lines = false
+
+[plugins]
+# Allowlist — empty means "load everything discovered".
+enabled = []
+
+# Block-list.
+disabled = []

@@ -1,0 +1,119 @@
+# Python bytecode / runtime
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / Packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments and uv
+.venv/
+venv/
+env/
+.uv/
+.uv-cache/
+pip-wheel-metadata/
+
+# Linting / Type-checking / Testing
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.nox/
+.tox/
+.dmypy.json
+dmypy.json
+.pre-commit-cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Jupyter / Notebooks
+.ipynb_checkpoints/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+!.env.template
+config.toml
+!config.example.toml
+
+# Docker (local overrides)
+docker-compose.override.yml
+
+# Registro (project-specific runtime & storage)
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+*.log
+registro.log
+.registro/
+scratch/
+
+# IDEs and Editors
+.vscode/
+.idea/
+.zed/
+*.swp
+*.swo
+*~
+*.bak
+*.sublime-project
+*.sublime-workspace
+
+# OS / System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# AI Tools & Agents
+.openai/
+.chatgpt/
+gpt-config.json
+openai.config.json
+.anthropic/
+.claude/
+claude.config.json
+claude-settings.json
+.prompts/
+.prompt-cache/
+.ai/
+.gemini/
+.antigravity/
+.antigravitycli/
+.copilot/
+.codex/
+.cagent/
+.cursor/
+.windsurf/
+.cline/
+CLAUDE.md
