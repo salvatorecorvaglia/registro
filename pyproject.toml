@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "registro"
+name = "registro-db"
 version = "1.0.0"
 description = "A terminal-first database workspace for modern engineers"
 readme = "README.md"

@@ -38,17 +38,17 @@ Registro requires **Python 3.13 or newer**. It is recommended to install using `
 
 ```bash
 # Install with all database drivers
-uv tool install "registro[all]"
+uv tool install "registro-db[all]"
 
 # Install with PostgreSQL and SQLite support only
-uv tool install "registro[postgres,sqlite]"
+uv tool install "registro-db[postgres,sqlite]"
 ```
 
 ### Using `pipx`
 
 ```bash
 # Install with DuckDB support
-pipx install "registro[duckdb]"
+pipx install "registro-db[duckdb]"
 ```
 
 ---
