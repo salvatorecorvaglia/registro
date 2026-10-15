@@ -38,6 +38,10 @@ class ConnectionPool:
         self._idle: asyncio.LifoQueue[DatabaseAdapter] = asyncio.LifoQueue(maxsize=size)
         self._sem = asyncio.Semaphore(size)
         self._all: list[DatabaseAdapter] = []
+        # Adapters handed in via ``preload``: the pool cannot rebuild them
+        # (an in-memory DuckDB database *is* its one connection), so they are
+        # never discarded on a failed reset.
+        self._preloaded: list[DatabaseAdapter] = []
         self._closed = False
         self._lock = asyncio.Lock()
         self._waiters: set[asyncio.Future[DatabaseAdapter]] = set()
@@ -57,6 +61,7 @@ class ConnectionPool:
             if len(self._all) >= self._size:
                 raise ValueError("pool is already at capacity")
             self._all.append(adapter)
+            self._preloaded.append(adapter)
             self._idle.put_nowait(adapter)
 
     async def _acquire(self) -> DatabaseAdapter:
@@ -152,13 +157,24 @@ class ConnectionPool:
 
     async def _release(self, adapter: DatabaseAdapter) -> None:
         async def _do_release() -> None:
+            reusable = True
             try:
                 await adapter.reset()
             except Exception:
+                # A connection that could not be returned to a clean state —
+                # stuck in a transaction, or dead after a server restart — must
+                # not be handed to the next query. Dropping it frees its slot,
+                # so the next ``acquire()`` builds a fresh connection instead.
+                reusable = False
                 logger.exception("pool_release_reset_failed")
             finally:
+                reusable = reusable and adapter.connected
+                if not reusable and any(adapter is a for a in self._preloaded):
+                    # Irreplaceable: closing it would destroy the database.
+                    logger.warning("pool_preloaded_adapter_kept_after_failed_reset")
+                    reusable = adapter.connected
                 async with self._lock:
-                    if self._closed:
+                    if self._closed or not reusable:
                         # ``close()`` empties ``_all``, so an adapter that was
                         # checked out at that moment is no longer listed. Close
                         # it regardless — testing membership first would leak

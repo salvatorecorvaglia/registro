@@ -74,6 +74,8 @@ class AdapterConformance:
     )
     #: A secondary index on the child's ``tag`` column.
     create_index_sql: ClassVar[str] = f"CREATE INDEX {_INDEX} ON {_CHILD} (tag)"
+    #: Whether the dialect has ``INSERT ... RETURNING`` (MySQL does not).
+    supports_returning: ClassVar[bool] = True
 
     # --- lifecycle ------------------------------------------------------
 
@@ -203,6 +205,31 @@ class AdapterConformance:
         await adapter.reset()
 
         assert len(await drain(adapter, f"SELECT id FROM {_TABLE}")) == 10
+
+    @pytest.mark.asyncio
+    async def test_abandoned_returning_stream_keeps_its_writes(
+        self, adapter: DatabaseAdapter
+    ) -> None:
+        """Reading only part of a RETURNING result must not undo the DML.
+
+        The TUI's display cap and the CLI's ``--limit`` both stop reading early.
+        Postgres wrapped its cursor in a transaction that rolled back on that
+        early close, so the rows the user was shown as inserted were discarded.
+        """
+        if not self.supports_returning:
+            pytest.skip("dialect has no RETURNING clause")
+        await drain(adapter, self.create_table_sql)
+
+        handle = await adapter.execute(
+            f"INSERT INTO {_TABLE} VALUES (1, 'a'), (2, 'b'), (3, 'c') RETURNING id"
+        )
+        stream = await adapter.stream(handle, batch_size=1)
+        async for _ in stream:
+            break
+        await stream.aclose()  # type: ignore[attr-defined]
+        await adapter.reset()
+
+        assert len(await drain(adapter, f"SELECT id FROM {_TABLE}")) == 3
 
     @pytest.mark.asyncio
     async def test_drained_statements_release_per_query_state(

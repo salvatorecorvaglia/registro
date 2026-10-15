@@ -137,3 +137,19 @@ def test_invalid_port_raises_config_error() -> None:
     """``urlparse`` defers port parsing to attribute access, inside ``parse``."""
     with pytest.raises(ConfigError):
         Dsn.parse("postgres://host:notaport/db")
+
+
+def test_ipv6_hosts_round_trip() -> None:
+    """Regression: the brackets around an IPv6 literal were dropped on render,
+    producing ``u@::1:5432`` — unparseable, so such a DSN could not connect."""
+    dsn = Dsn.parse("postgres://u:secret@[::1]:5432/db")
+    assert dsn.host == "::1"
+    assert dsn.render(mask_password=False) == "postgres://u:secret@[::1]:5432/db"
+    assert Dsn.parse(dsn.render(mask_password=False)) == dsn
+    assert dsn.render(mask_password=True) == "postgres://u:***@[::1]:5432/db"
+
+
+def test_masking_keeps_ipv6_brackets() -> None:
+    from registro_core.models.connection import mask_dsn_password  # noqa: PLC0415
+
+    assert mask_dsn_password("mysql://u:pw@[fe80::1]:3306/db") == "mysql://u:***@[fe80::1]:3306/db"

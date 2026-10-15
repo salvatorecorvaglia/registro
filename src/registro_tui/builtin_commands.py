@@ -99,6 +99,7 @@ BUILTIN_COMMANDS: list[Command] = [
         id="builtin.set_row_limit",
         title="Set row display limit",
         description="Change the maximum row display limit dynamically.",
+        default_binding=ACTION_TO_KEY.get("set_row_limit"),
         handler=_wrap("set_row_limit"),
         category="Results",
     ),

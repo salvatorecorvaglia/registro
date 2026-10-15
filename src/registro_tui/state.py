@@ -24,8 +24,9 @@ class AppState:
     plugins: PluginRegistry
     dsn: Dsn | None = None
     # Adapter dedicated to schema introspection — never shared with query
-    # execution, so a long SELECT cannot block a refresh.
-    adapter: DatabaseAdapter | None = None
+    # execution, so a long SELECT cannot block a refresh. (Queries run on
+    # ``pool``; this one is *not* where they execute.)
+    introspection_adapter: DatabaseAdapter | None = None
     # Bounded pool of execution adapters. Each `action_run_query` acquires
     # one for the lifetime of its stream.
     pool: ConnectionPool | None = None
@@ -33,5 +34,11 @@ class AppState:
     history: QueryHistory | None = None
 
     @property
+    def adapter(self) -> DatabaseAdapter | None:
+        """Deprecated alias of :attr:`introspection_adapter`, kept for plugins."""
+        return self.introspection_adapter
+
+    @property
     def connected(self) -> bool:
-        return self.adapter is not None and self.adapter.connected
+        adapter = self.introspection_adapter
+        return adapter is not None and adapter.connected

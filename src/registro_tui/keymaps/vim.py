@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from registro_tui.keymaps.default import DEFAULT_BINDINGS
 
+# ``first,second`` is a key *sequence* here — ``g,g`` is vim's ``gg``. That is
+# not Textual's meaning (to Textual a comma lists alternative keys), so the app
+# binds these through ``RegistroApp._bind_sequence`` rather than ``bind``.
 VIM_BINDINGS: list[tuple[str, str, str]] = [
     *DEFAULT_BINDINGS,
     ("colon", "command_palette", "Ex command"),

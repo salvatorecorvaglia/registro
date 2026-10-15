@@ -46,19 +46,31 @@ class HistoryEntry(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+def _default_dir() -> Path:
+    """``~/.registro``, resolved per call so a changed ``$HOME`` is honoured."""
+    return Path.home() / ".registro"
+
+
 class QueryHistory:
     """Append-only history with a bounded retention window."""
 
     def __init__(self, path: Path | None = None, *, max_entries: int = 1000) -> None:
-        self._path = path or (Path.home() / ".registro" / "history.db")
+        self._path = path or (_default_dir() / "history.db")
         self._max = max_entries
         self._conn: aiosqlite.Connection | None = None
         self._inserts_since_trim = 0
 
     async def open(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with contextlib.suppress(Exception):
-            self._path.parent.chmod(0o700)
+        parent = self._path.parent
+        created = not parent.exists()
+        parent.mkdir(parents=True, exist_ok=True)
+        # Tighten the directory only when it is ours: one we just created, or
+        # Registro's own ``~/.registro``. ``engine.history_path`` can point
+        # anywhere, and chmod-ing the parent of ``~/Documents/history.db`` to
+        # 0700 rewrote the permissions of a directory we were merely handed.
+        if created or parent == _default_dir():
+            with contextlib.suppress(Exception):
+                parent.chmod(0o700)
         if not self._path.exists():
             with contextlib.suppress(Exception):
                 self._path.touch()

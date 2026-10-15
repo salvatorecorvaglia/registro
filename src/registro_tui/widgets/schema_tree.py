@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from textual.widgets.tree import TreeNode
 
     from registro_core.models.schema import SchemaSnapshot
+    from registro_engine.introspector import Introspector
 
 
 class SchemaTree(Tree[object]):
@@ -44,6 +45,10 @@ class SchemaTree(Tree[object]):
         super().__init__("Schema", id="schema-tree", data=None)
         self.show_root = True
         self.show_guides = True
+        #: Source for lazily expanded objects, set by the host on connect. The
+        #: tree used to fish it out of ``self.app.state``, which tied the widget
+        #: to one particular host application's attributes.
+        self.introspector: Introspector | None = None
 
     def populate(self, snapshot: SchemaSnapshot) -> None:
         self.clear()
@@ -69,10 +74,7 @@ class SchemaTree(Tree[object]):
 
         # Fetch columns/indexes/foreign keys lazily if not already present.
         if not obj.columns:
-            app_state = getattr(self.app, "state", None)
-            introspector = (
-                getattr(app_state, "introspector", None) if app_state is not None else None
-            )
+            introspector = self.introspector
             if introspector is not None:
                 schema_name = obj.schema_name or ""
                 try:

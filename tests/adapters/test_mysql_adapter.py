@@ -26,6 +26,7 @@ pytestmark = pytest.mark.integration
 
 class TestMySQLConformance(AdapterConformance):
     create_table_sql = "CREATE TABLE registro_conformance (id INT, name VARCHAR(32))"
+    supports_returning = False
 
     @pytest.fixture
     async def adapter(self, mysql_dsn: str) -> AsyncIterator[MySQLAdapter]:

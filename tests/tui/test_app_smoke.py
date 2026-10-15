@@ -31,8 +31,8 @@ async def test_app_boots_in_memory_sqlite() -> None:
         # Give startup tasks a chance to settle.
         await pilot.pause()
         await app.workers.wait_for_complete()
-        assert app.state.adapter is not None
-        assert app.state.adapter.connected  # type: ignore[attr-defined]
+        assert app.state.introspection_adapter is not None
+        assert app.state.introspection_adapter.connected  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -91,7 +91,7 @@ async def test_teardown_closes_connection() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
-        adapter = app.state.adapter
+        adapter = app.state.introspection_adapter
         assert adapter is not None
         assert adapter.connected  # type: ignore[attr-defined]
     # on_unmount must have torn the connection down.
@@ -273,8 +273,7 @@ async def test_unmount_cancels_an_in_flight_palette_task() -> None:
         await pilot.pause()
         await asyncio.wait_for(started.wait(), timeout=1)
 
-        task = app._palette_task
-        assert task is not None
+        [task] = app._palette_tasks
         assert not task.done()
         task_holder["task"] = task
 

@@ -22,12 +22,12 @@ async def test_connect_populates_pool() -> None:
         await pilot.pause()
         await app.workers.wait_for_complete()
         assert isinstance(app.state.pool, ConnectionPool)
-        assert app.state.adapter is not None
+        assert app.state.introspection_adapter is not None
 
         # The introspection adapter must be its own connection, so a long
         # SELECT holding a pool slot cannot corrupt a schema refresh.
         async with app.state.pool.acquire() as pooled_adapter:
-            assert app.state.adapter is not pooled_adapter
+            assert app.state.introspection_adapter is not pooled_adapter
 
 
 @pytest.mark.asyncio
@@ -43,7 +43,7 @@ async def test_in_memory_sqlite_is_shared_across_connections() -> None:
         await pilot.pause()
         await app.workers.wait_for_complete()
         pool = app.state.pool
-        introspect_adapter = app.state.adapter
+        introspect_adapter = app.state.introspection_adapter
         assert pool is not None
         assert introspect_adapter is not None
 
@@ -91,14 +91,14 @@ async def test_reconnecting_closes_the_previous_session() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
-        first_adapter = app.state.adapter
+        first_adapter = app.state.introspection_adapter
         first_pool = app.state.pool
         assert first_adapter is not None
 
         await app._connect(Dsn.parse("sqlite:///:memory:"))
         await pilot.pause()
 
-        assert app.state.adapter is not first_adapter, "session was not replaced"
+        assert app.state.introspection_adapter is not first_adapter, "session was not replaced"
         assert not first_adapter.connected, "previous adapter was left open"  # type: ignore[attr-defined]
         assert first_pool is not None
         assert first_pool._closed, "previous pool was left open"
@@ -120,7 +120,7 @@ async def test_concurrent_connects_do_not_race() -> None:
         )
         await pilot.pause()
 
-        assert app.state.adapter is not None
-        assert app.state.adapter.connected  # type: ignore[attr-defined]
+        assert app.state.introspection_adapter is not None
+        assert app.state.introspection_adapter.connected  # type: ignore[attr-defined]
         async with app.state.pool.acquire() as adapter:  # type: ignore[union-attr]
             assert await adapter.ping()

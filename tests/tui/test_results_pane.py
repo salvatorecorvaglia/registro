@@ -152,3 +152,50 @@ async def test_a_new_run_clears_the_previous_summary() -> None:
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.query_one("#results-panel").border_subtitle == "no rows returned"
+
+
+@pytest.mark.asyncio
+async def test_back_to_back_exports_never_overwrite_each_other(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Regression: names had one-second resolution, so a quick second export
+    replaced the first file."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    app = RegistroApp(config=RegistroConfig(), initial_dsn=Dsn.parse("sqlite:///:memory:"))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        editor = app._tabs().current_editor
+        assert editor is not None
+        editor.text = "SELECT 1 AS a"
+        await app.action_run_query()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        await app.action_export_csv()
+        await app.action_export_csv()
+
+        exports = list((tmp_path / ".registro" / "exports").glob("export-*.csv"))
+        assert len(exports) == 2
+
+
+@pytest.mark.asyncio
+async def test_export_refuses_to_overwrite_an_existing_file(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from textual.app import App  # noqa: PLC0415
+
+    from registro_core.models.result import Column, ResultBatch  # noqa: PLC0415
+    from registro_tui.widgets.results_table import ResultsTable  # noqa: PLC0415
+
+    class _Harness(App[None]):
+        def compose(self):  # type: ignore[no-untyped-def]
+            yield ResultsTable()
+
+    target = tmp_path / "existing.csv"
+    target.write_text("precious\n")
+    app = _Harness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(ResultsTable)
+        await table.feed(ResultBatch(columns=[Column(name="a")], rows=[(1,)]))
+
+        with pytest.raises(FileExistsError):
+            await table.export_csv(target)
+    assert target.read_text() == "precious\n"

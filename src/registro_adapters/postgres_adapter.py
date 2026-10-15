@@ -58,14 +58,31 @@ _ALLOWED_PARAMS = frozenset(
 )
 
 
+# Command tags whose trailing number is a row count: ``UPDATE 5``,
+# ``INSERT 0 5`` (the 0 is a legacy OID), ``SELECT 5`` from CREATE TABLE AS.
+_ROW_COUNT_TAGS = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE", "SELECT", "COPY", "MOVE"})
+
+
+def _affected_rows(status: str | None) -> int | None:
+    """Row count from a Postgres command tag, or ``None`` if it carries none."""
+    parts = (status or "").split()
+    if len(parts) >= 2 and parts[0] in _ROW_COUNT_TAGS and parts[-1].isdigit():
+        return int(parts[-1])
+    return None
+
+
 class _PostgresTransaction:
-    def __init__(self, conn: asyncpg.Connection) -> None:
+    def __init__(self, adapter: PostgresAdapter, conn: asyncpg.Connection) -> None:
+        self._adapter = adapter
         self._conn = conn
         self._tx: Any = None
 
     async def __aenter__(self) -> _PostgresTransaction:
         self._tx = self._conn.transaction()
         await self._tx.start()
+        # Registered so ``reset()`` can end it through asyncpg's own API when
+        # the connection goes back to the pool with the block still open.
+        self._adapter._user_tx = self
         return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -74,15 +91,21 @@ class _PostgresTransaction:
         else:
             await self.rollback()
 
+    def _detach(self) -> Any:
+        tx, self._tx = self._tx, None
+        if self._adapter._user_tx is self:
+            self._adapter._user_tx = None
+        return tx
+
     async def commit(self) -> None:
-        if self._tx is not None:
-            await self._tx.commit()
-            self._tx = None
+        tx = self._detach()
+        if tx is not None:
+            await tx.commit()
 
     async def rollback(self) -> None:
-        if self._tx is not None:
-            await self._tx.rollback()
-            self._tx = None
+        tx = self._detach()
+        if tx is not None:
+            await tx.rollback()
 
 
 class PostgresAdapter(AbstractAdapter):
@@ -96,6 +119,11 @@ class PostgresAdapter(AbstractAdapter):
         self._active_query_id: str | None = None
         self._statements: dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        # Transactions this adapter opened and has not yet ended: the one
+        # wrapping a streaming cursor, and one entered through ``begin()``.
+        # Tracked so ``reset()`` can end them through asyncpg's public API.
+        self._stream_tx: Any = None
+        self._user_tx: _PostgresTransaction | None = None
 
     async def _do_connect(self, dsn: Dsn) -> None:
         # Validate before connecting. The parameters travel inside the URL that
@@ -120,6 +148,8 @@ class PostgresAdapter(AbstractAdapter):
         self._backend_pid = None
         self._active_query_id = None
         self._statements.clear()
+        self._stream_tx = None
+        self._user_tx = None
 
     async def ping(self) -> bool:
         if self._conn is None:
@@ -206,7 +236,12 @@ class PostgresAdapter(AbstractAdapter):
                     handle.mark_done(QueryStatus.SUCCEEDED)
                     self._set_metadata(
                         handle,
-                        QueryMetadata(server_message=status, column_names=[], column_types=[]),
+                        QueryMetadata(
+                            server_message=status,
+                            affected_rows=_affected_rows(status),
+                            column_names=[],
+                            column_types=[],
+                        ),
                     )
                     yield ResultBatch(columns=[], rows=[], is_last=True)
                     return
@@ -228,8 +263,24 @@ class PostgresAdapter(AbstractAdapter):
                     ),
                 )
 
+                # A server-side cursor only lives inside a transaction, so the
+                # stream opens one. It is managed by hand rather than with
+                # ``async with``: that form rolls back on *any* exception,
+                # including the GeneratorExit a consumer raises by closing the
+                # stream early — the TUI's display cap, the CLI's ``--limit``.
+                # For ``INSERT/UPDATE/DELETE ... RETURNING`` the statement has
+                # already run to completion by the first fetch, so that rollback
+                # silently undid writes the user was being shown as done. Every
+                # other adapter autocommits; this one now matches them.
+                tx = conn.transaction()
                 try:
-                    async with conn.transaction():
+                    await tx.start()
+                except asyncpg.PostgresError as exc:
+                    self._wrap_driver_error(exc, handle, sql=sql)
+                self._stream_tx = tx
+                keep_writes = False
+                try:
+                    try:
                         cur = await stmt.cursor(*args)
                         while True:
                             if cancel.is_set():
@@ -239,6 +290,10 @@ class PostgresAdapter(AbstractAdapter):
                                 )
                             records = await cur.fetch(batch_size)
                             if not records:
+                                # Commit before reporting success, so a failure
+                                # at commit time (a deferred constraint) is an
+                                # error on this query rather than a lost write.
+                                await self._end_stream_tx(tx, commit=True, strict=True)
                                 handle.mark_done(QueryStatus.SUCCEEDED)
                                 yield ResultBatch(columns=columns, rows=[], is_last=True)
                                 return
@@ -247,12 +302,42 @@ class PostgresAdapter(AbstractAdapter):
                                 rows=[tuple(r.values()) for r in records],
                                 is_last=False,
                             )
-                except asyncpg.PostgresError as exc:
-                    self._wrap_driver_error(exc, handle, sql=sql)
+                    except asyncpg.PostgresError as exc:
+                        self._wrap_driver_error(exc, handle, sql=sql)
+                except GeneratorExit:
+                    # The consumer stopped reading. That is not a failure: keep
+                    # the statement's effects — unless the query was cancelled,
+                    # in which case undoing it is what the user asked for.
+                    keep_writes = not cancel.is_set()
+                    raise
+                finally:
+                    await self._end_stream_tx(tx, commit=keep_writes)
             finally:
                 self._forget(handle)
 
         return _gen()
+
+    async def _end_stream_tx(self, tx: Any, *, commit: bool, strict: bool = False) -> None:
+        """Commit or roll back the transaction wrapping a result stream.
+
+        Idempotent: the transaction is ended at most once, whichever of the
+        stream's exit paths reaches it first. With ``strict`` a failure raises
+        as a :class:`QueryError`; otherwise it is logged — the other callers are
+        unwinding paths, where raising would mask the exception already in
+        flight, and ``reset()`` gets a second chance at the connection.
+        """
+        if self._stream_tx is not tx:
+            return
+        self._stream_tx = None
+        try:
+            if commit:
+                await tx.commit()
+            else:
+                await tx.rollback()
+        except Exception as exc:
+            if strict:
+                raise QueryError(str(exc), context={"stage": "commit"}) from exc
+            logger.warning("postgres_stream_tx_end_failed", commit=commit, error=str(exc))
 
     async def cancel(self, handle: QueryHandle) -> None:
         await super().cancel(handle)
@@ -295,20 +380,28 @@ class PostgresAdapter(AbstractAdapter):
         self._statements.clear()
         if self._conn is None:
             return
-        # A stream abandoned mid-cursor leaves the connection inside the
-        # transaction that wrapped it. Handing that to the next query would
-        # run it in a foreign — possibly already-aborted — transaction.
-        with contextlib.suppress(Exception):
-            top_xact = getattr(self._conn, "_top_xact", None)
-            if top_xact is not None:
-                await top_xact.rollback()
-            elif self._conn.is_in_transaction():
+        # A stream abandoned without being closed, a ``begin()`` block never
+        # exited, or a ``BEGIN`` the user's own SQL issued: any of them would
+        # hand the next query a foreign — possibly already-aborted —
+        # transaction. End them innermost first.
+        if self._stream_tx is not None:
+            await self._end_stream_tx(self._stream_tx, commit=False)
+        if self._user_tx is not None:
+            with contextlib.suppress(Exception):
+                await self._user_tx.rollback()
+            self._user_tx = None
+        if self._conn.is_in_transaction():
+            try:
                 await self._conn.execute("ROLLBACK")
-        if hasattr(self._conn, "_top_xact"):
-            self._conn._top_xact = None
+            except Exception as exc:
+                # Raised, not swallowed: a connection that cannot leave its
+                # transaction must not go back into the pool.
+                raise AdapterError(
+                    "postgres: could not reset the connection", context={"error": str(exc)}
+                ) from exc
 
     async def begin(self) -> Transaction:
-        return _PostgresTransaction(self._require_conn(self._conn))
+        return _PostgresTransaction(self, self._require_conn(self._conn))
 
     async def introspect(self, *, lazy: bool = False) -> SchemaSnapshot:
         conn = self._require_conn(self._conn)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import ssl as ssl_module
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncmy
@@ -165,6 +166,39 @@ def _describe_columns(description: Sequence[Any]) -> list[Column]:
     return columns
 
 
+# DSN spellings for TLS. asyncmy has no such keyword arguments — it takes a
+# single ``ssl`` (a dict or an ``SSLContext``) — so these used to reach
+# ``asyncmy.connect`` verbatim and fail with a TypeError, while ``ssl=true``
+# coerced to ``True``, which asyncmy turns into *no* context at all.
+_SSL_PARAMS = frozenset({"ssl", "ssl_ca", "ssl_cert", "ssl_key", "ssl_disabled"})
+
+
+def _ssl_context(params: dict[str, Any]) -> ssl_module.SSLContext | None:
+    """Build the TLS context a DSN asks for, or ``None`` for plaintext.
+
+    ``ssl_ca`` turns on certificate *and* hostname verification. ``ssl=true``
+    alone encrypts without verifying the server, matching the MySQL client's
+    ``--ssl-mode=REQUIRED``. ``ssl_cert``/``ssl_key`` add a client certificate.
+    """
+    if params.pop("ssl_disabled", False) is True:
+        for key in _SSL_PARAMS:
+            params.pop(key, None)
+        return None
+    wanted = params.pop("ssl", None)
+    ca = params.pop("ssl_ca", None)
+    cert = params.pop("ssl_cert", None)
+    key = params.pop("ssl_key", None)
+    if wanted is False or not (wanted or ca or cert):
+        return None
+    ctx = ssl_module.create_default_context(cafile=str(ca) if ca else None)
+    if not ca:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl_module.CERT_NONE
+    if cert:
+        ctx.load_cert_chain(str(cert), keyfile=str(key) if key else None)
+    return ctx
+
+
 def _connect_kwargs(dsn: Dsn) -> dict[str, Any]:
     """Build asyncmy connect kwargs from a DSN, allowlisting its parameters."""
     kwargs: dict[str, Any] = {
@@ -175,7 +209,17 @@ def _connect_kwargs(dsn: Dsn) -> dict[str, Any]:
         "database": dsn.database,
         "autocommit": True,
     }
-    kwargs.update(coerce_params(dsn.params, _ALLOWED_PARAMS, adapter="mysql"))
+    params = coerce_params(dsn.params, _ALLOWED_PARAMS, adapter="mysql")
+    try:
+        context = _ssl_context(params)
+    except (OSError, ssl_module.SSLError) as exc:
+        # An unreadable CA or key file: say which setting, not a bare OSError.
+        raise AdapterConnectionError(
+            f"mysql: invalid TLS settings: {exc}", context={"adapter": "mysql"}
+        ) from exc
+    if context is not None:
+        kwargs["ssl"] = context
+    kwargs.update(params)
     return kwargs
 
 
@@ -307,8 +351,7 @@ class MySQLAdapter(AbstractAdapter):
             return False
         finally:
             # ``close`` in a ``finally``: a failed ``SELECT 1`` used to leave the
-            # cursor open, which is the same leak the 1.3.0 notes record fixing
-            # in ``stream()``.
+            # cursor open — the same leak ``stream()`` guards against.
             with contextlib.suppress(Exception):
                 await cur.close()
 

@@ -20,7 +20,8 @@ class QueryTabs(TabbedContent):
     def new_tab(self, sql: str = "") -> None:
         self._counter += 1
         tab_id = f"tab-{self._counter}"
-        pane = TabPane(f"query {self._counter}", SqlEditor(sql), id=tab_id)
+        editor = SqlEditor(sql, id=f"sql-editor-{self._counter}")
+        pane = TabPane(f"query {self._counter}", editor, id=tab_id)
         self.add_pane(pane)
         self.active = tab_id
 

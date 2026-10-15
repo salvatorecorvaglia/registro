@@ -56,16 +56,16 @@ class HelpModal(BaseModal[None]):
             yield Static("[b]Registro — Keybindings[/]\n", id="help-title")
             if self._is_vim():
                 yield Static(
-                    "[$warning]Note: Vim mode applies to global/panel navigation controls "
-                    "(e.g., j/k in list views, G/gg in panels). The query editor itself "
-                    "remains in standard insert mode.[/]\n",
+                    "[$warning]Note: Vim keys (: gg G) act while the schema tree or "
+                    "results grid has focus. The query editor itself is not modal — "
+                    "it types them as text.[/]\n",
                     id="help-vim-note",
                 )
             # ``?`` is a printable character, so a focused editor or input
             # consumes it before the app sees it — correct Textual behaviour,
             # but worth saying out loud since the footer advertises the key.
             yield Static(
-                "[$warning]Note: while the editor has focus, ``?`` types a question mark. "
+                "[$warning]Note: while the editor has focus, ? types a question mark. "
                 "Use the command palette to reach this help from there.[/]\n",
                 id="help-focus-note",
             )

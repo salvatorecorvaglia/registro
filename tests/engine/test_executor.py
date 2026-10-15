@@ -415,3 +415,101 @@ async def test_driver_timeout_error_survives_when_no_deadline_is_set() -> None:
         assert "read timed out" in str(excinfo.value)
     finally:
         await bus.close()
+
+
+async def _settle(events: list, count: int = 1) -> None:  # type: ignore[type-arg]
+    """Let the bus deliver until *events* holds at least *count* items."""
+    for _ in range(50):
+        if len(events) >= count:
+            return
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_finish_early_reports_a_truncated_completion_not_a_cancel() -> None:
+    """A display cap / ``--limit`` stop is a successful run that read less.
+
+    It used to go through the abandoned-stream path: the handle was marked
+    CANCELLED, ``QueryCompleted`` never fired (so the status bar kept the
+    previous run's numbers), and the history recorded the query as cancelled.
+    """
+    adapter = SQLiteAdapter()
+    await adapter.connect(Dsn.parse("sqlite:///:memory:"))
+    await _exec(adapter, "CREATE TABLE t (id INTEGER)")
+    for i in range(5):
+        await _exec(adapter, f"INSERT INTO t VALUES ({i})")
+
+    bus = EventBus()
+    completed: list[QueryCompleted] = []
+    cancelled: list[QueryCancelled] = []
+    bus.subscribe(QueryCompleted, lambda e: _append(completed, e))
+    bus.subscribe(QueryCancelled, lambda e: _append(cancelled, e))
+    try:
+        executor = QueryExecutor(adapter, bus)
+        run = await executor.run("SELECT id FROM t", batch_size=2)
+        async for _ in run.rows:
+            break
+        await run.finish_early()
+        await _settle(completed)
+
+        assert [(e.rows, e.truncated) for e in completed] == [(2, True)]
+        assert not cancelled
+        assert run.status is QueryStatus.SUCCEEDED
+        assert adapter._cursors == {}, "finish_early() must still release the cursor"
+    finally:
+        await bus.close()
+        await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_finish_early_after_a_cancel_is_still_a_cancel() -> None:
+    adapter = _SlowAdapter()
+    bus = EventBus()
+    completed: list[QueryCompleted] = []
+    cancelled: list[QueryCancelled] = []
+    bus.subscribe(QueryCompleted, lambda e: _append(completed, e))
+    bus.subscribe(QueryCancelled, lambda e: _append(cancelled, e))
+    try:
+        executor = QueryExecutor(adapter, bus)  # type: ignore[arg-type]
+        run = await executor.run("SELECT 1 AS a")
+        async for _ in run.rows:
+            break
+        await executor.cancel(run)
+        await run.finish_early()
+        await _settle(cancelled)
+
+        assert cancelled
+        assert not completed
+    finally:
+        await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_stream_call_still_publishes_a_terminal_event() -> None:
+    """``QueryStarted`` is already out when ``adapter.stream()`` raises.
+
+    Without a matching terminal event, every subscriber is left showing the
+    query as running forever.
+    """
+
+    class _BrokenStreamAdapter(_SlowAdapter):
+        async def stream(self, handle, *, batch_size: int = 1000):  # type: ignore[no-untyped-def]
+            raise QueryError("bad parameters")
+
+    bus = EventBus()
+    started: list[QueryStarted] = []
+    failed: list[QueryFailed] = []
+    bus.subscribe(QueryStarted, lambda e: _append(started, e))
+    bus.subscribe(QueryFailed, lambda e: _append(failed, e))
+    try:
+        executor = QueryExecutor(_BrokenStreamAdapter(), bus)  # type: ignore[arg-type]
+        with pytest.raises(QueryError):
+            await executor.run("SELECT 1")
+        await _settle(failed)
+
+        assert len(started) == 1
+        assert [(e.query_id, e.message) for e in failed] == [
+            (started[0].query_id, "bad parameters")
+        ]
+    finally:
+        await bus.close()

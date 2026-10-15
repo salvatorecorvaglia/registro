@@ -206,3 +206,34 @@ async def test_update_object_before_any_snapshot_is_a_no_op() -> None:
     finally:
         await bus.close()
         await adapter.close()
+
+
+class _BrokenCatalogAdapter(_FakeAdapter):
+    """Raises what a driver raises, not a Registro error."""
+
+    async def introspect(self, *, lazy: bool = False) -> SchemaSnapshot:
+        raise OSError("connection reset by peer")
+
+    async def fetch_columns(self, schema: str, name: str) -> list[TableColumn]:
+        raise PermissionError("permission denied for pg_catalog")
+
+
+@pytest.mark.asyncio
+async def test_driver_errors_surface_as_adapter_errors() -> None:
+    """A raw driver exception must not escape the introspector.
+
+    The TUI catches the Registro hierarchy around a schema refresh; anything
+    else escaped the connect worker and exited the app.
+    """
+    from registro_core.errors import AdapterError  # noqa: PLC0415
+
+    bus = EventBus()
+    try:
+        intro = Introspector(cast("DatabaseAdapter", _BrokenCatalogAdapter()), bus)
+        with pytest.raises(AdapterError, match="connection reset") as snap_err:
+            await intro.snapshot()
+        assert isinstance(snap_err.value.__cause__, OSError)
+        with pytest.raises(AdapterError, match="permission denied"):
+            await intro.fetch_columns("public", "t")
+    finally:
+        await bus.close()

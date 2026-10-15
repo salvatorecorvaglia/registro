@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from registro_core.errors import ConfigError
 from registro_core.logging import get_logger
@@ -57,6 +57,13 @@ class LoggingConfig(_Section):
     # ``json_lines`` — emit one JSON object per line (CI/Docker). ``None``
     # auto-detects based on whether stderr is a TTY.
     json_lines: bool | None = None
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _upper_level(cls, value: object) -> object:
+        # ``REGISTRO_LOGGING__LEVEL=debug`` is how people type it; the logging
+        # module itself accepts any case, so rejecting it here was needless.
+        return value.upper() if isinstance(value, str) else value
 
 
 class PluginsConfig(_Section):

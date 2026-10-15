@@ -72,10 +72,12 @@ class PluginLoader:
         self._instances: dict[str, Any] = {}
         self._contexts: dict[str, PluginContext] = {}
 
-    def _is_allowed(self, plugin_id: str) -> bool:
-        if plugin_id in self._disabled:
+    def _is_allowed(self, plugin_id: str, entry_point: str | None = None) -> bool:
+        """Apply ``enabled``/``disabled``, matching the manifest id or entry-point name."""
+        names = {plugin_id} if entry_point is None else {plugin_id, entry_point}
+        if names & self._disabled:
             return False
-        return not (self._enabled and plugin_id not in self._enabled)
+        return not (self._enabled and not names & self._enabled)
 
     def discover(self) -> list[EntryPoint]:
         return list(entry_points(group=self.GROUP))
@@ -88,6 +90,13 @@ class PluginLoader:
                 logger.exception("plugin_load_failed", entry_point=ep.name)
 
     def load_entry_point(self, ep: EntryPoint) -> None:
+        # Checked *before* importing: the manifest id is only known once the
+        # plugin's module has been imported and its factory called — by which
+        # point a "disabled" plugin's code has already run. The entry-point
+        # name (what ``registro plugins list`` shows) is known up front.
+        if ep.name in self._disabled:
+            logger.info("plugin_skipped", entry_point=ep.name)
+            return
         try:
             factory = ep.load()
             plugin = factory()
@@ -95,12 +104,12 @@ class PluginLoader:
             raise PluginLoadError(
                 f"failed to instantiate plugin {ep.name!r}", context={"error": str(exc)}
             ) from exc
-        self._register(plugin)
+        self._register(plugin, entry_point=ep.name)
 
     def load_instance(self, plugin: Any) -> None:
         self._register(plugin)
 
-    def _register(self, plugin: Any) -> None:
+    def _register(self, plugin: Any, *, entry_point: str | None = None) -> None:
         try:
             manifest = getattr(plugin, "manifest", None)
         except Exception as exc:
@@ -113,7 +122,7 @@ class PluginLoader:
                 "plugin missing PluginManifest at `.manifest`",
                 context={"plugin_repr": repr(plugin)},
             )
-        if not self._is_allowed(manifest.id):
+        if not self._is_allowed(manifest.id, entry_point):
             logger.info("plugin_skipped", plugin_id=manifest.id)
             return
         if not version_satisfies(_registro_version, manifest.requires_registro):

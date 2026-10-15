@@ -90,3 +90,55 @@ async def test_load_entry_point_wraps_factory_errors(
             loader.load_entry_point(bad)
     finally:
         await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_entry_point_is_never_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``disabled`` was only checked after import + instantiation.
+
+    The manifest id is not known until the plugin's code has run, so a
+    "disabled" plugin still executed at every startup. Disabling by the
+    entry-point name — the one ``registro plugins list`` prints — must stop it
+    before import.
+    """
+    loaded: list[str] = []
+
+    class _TrackingEntryPoint:
+        name = "sample"
+        value = "tests.fixtures.sample_plugin:factory"
+        group = PluginLoader.GROUP
+
+        def load(self) -> object:
+            loaded.append(self.name)
+            raise AssertionError("a disabled plugin was imported")
+
+    bus = EventBus()
+    registry = PluginRegistry()
+    try:
+        loader = PluginLoader(registry, bus, disabled=["sample"])
+        loader.load_entry_point(_TrackingEntryPoint())  # type: ignore[arg-type]
+        assert loaded == []
+        assert list(registry.manifests()) == []
+    finally:
+        await bus.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [["tests.sample"], ["sample"]])
+async def test_the_allowlist_accepts_the_manifest_id_or_entry_point_name(
+    enabled: list[str],
+) -> None:
+    ep = EntryPoint(
+        name="sample",
+        value="tests.fixtures.sample_plugin:factory",
+        group=PluginLoader.GROUP,
+    )
+    bus = EventBus()
+    registry = PluginRegistry()
+    try:
+        PluginLoader(registry, bus, enabled=enabled).load_entry_point(ep)
+        assert [m.id for m in registry.manifests()] == ["tests.sample"]
+    finally:
+        await bus.close()

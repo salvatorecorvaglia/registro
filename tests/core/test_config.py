@@ -116,3 +116,9 @@ def test_settings_are_validated_on_assignment() -> None:
         cfg.ui.max_display_rows = -1
     cfg.ui.max_display_rows = 42
     assert cfg.ui.max_display_rows == 42
+
+
+def test_log_level_is_case_insensitive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("REGISTRO_LOGGING__LEVEL", "debug")
+    cfg = load_config(tmp_path / "absent.toml")
+    assert cfg.logging.level == "DEBUG"

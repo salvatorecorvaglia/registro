@@ -236,9 +236,12 @@ def run_query(
         bus = EventBus()
         try:
             executor = QueryExecutor(adapter, bus)
-            run_handle = await executor.run(sql, timeout=effective_timeout)
+            run_handle = await executor.run(
+                sql, batch_size=cfg.ui.row_batch_size, timeout=effective_timeout
+            )
             columns: list[str] = []
             rows: list[tuple[Any, ...]] = []
+            limit_reached = False
             try:
                 async for batch in run_handle.rows:
                     if not columns and batch.columns:
@@ -248,18 +251,30 @@ def run_query(
                             break
                         rows.append(row)
                     if len(rows) >= limit:
+                        limit_reached = True
                         break
             finally:
                 # Release the adapter's cursor/transaction when --limit cut the
                 # stream short, rather than leaving it to the garbage collector.
-                await run_handle.aclose()
+                # Reaching the limit is a successful, truncated run — not a
+                # cancellation — so it goes through ``finish_early``.
+                if limit_reached:
+                    await run_handle.finish_early()
+                else:
+                    await run_handle.aclose()
 
             _render(output, columns, rows)
             # Rows *printed* and rows *read* diverge whenever ``--limit`` cuts
             # the stream short. Reporting only the latter meant printing 200
             # rows under a line that claimed 1000.
             elapsed = f"{run_handle.duration_ms or 0:.1f} ms"
-            if run_handle.rows_emitted > len(rows):
+            meta = run_handle.metadata
+            if not columns and meta is not None and meta.affected_rows is not None:
+                # DML/DDL: there is no result set to count, but the statement's
+                # own effect is what the user wants to know.
+                n = meta.affected_rows
+                summary = f"{n} row{'s' if n != 1 else ''} affected in {elapsed}"
+            elif run_handle.rows_emitted > len(rows):
                 summary = (
                     f"{len(rows)} of {run_handle.rows_emitted} row(s) in {elapsed} "
                     f"(--limit {limit} reached)"

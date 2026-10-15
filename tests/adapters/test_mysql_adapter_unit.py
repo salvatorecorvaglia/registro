@@ -256,3 +256,34 @@ async def test_introspection_keeps_the_buffered_cursor() -> None:
     source = inspect.getsource(MySQLIntrospector._fetch)
     assert "self._conn.cursor()" in source
     assert "SSCursor" not in source
+
+
+def test_dsn_tls_parameters_become_an_ssl_context_not_stray_kwargs() -> None:
+    """Regression: ``ssl_ca``/``ssl_cert``/``ssl_key``/``ssl_disabled`` were
+    allowlisted and passed to ``asyncmy.connect``, which has no such keywords,
+    and ``ssl=true`` coerced to ``True``, which asyncmy maps to no TLS at all."""
+    import inspect  # noqa: PLC0415
+    import ssl  # noqa: PLC0415
+
+    from registro_adapters.mysql_adapter import _connect_kwargs  # noqa: PLC0415
+
+    accepted = set(inspect.signature(asyncmy.connection.Connection.__init__).parameters)
+
+    kwargs = _connect_kwargs(Dsn.parse("mysql://u:p@db:3306/app?ssl=true&charset=utf8mb4"))
+    assert set(kwargs) <= accepted, set(kwargs) - accepted
+    assert isinstance(kwargs["ssl"], ssl.SSLContext)
+    assert kwargs["ssl"].verify_mode is ssl.CERT_NONE  # encrypt-only without a CA
+    assert kwargs["charset"] == "utf8mb4"
+
+    plain = _connect_kwargs(Dsn.parse("mysql://u:p@db/app?ssl=true&ssl_disabled=true"))
+    assert "ssl" not in plain
+    assert set(plain) <= accepted
+
+
+def test_an_unreadable_ca_file_is_a_clear_connection_error(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from registro_adapters.mysql_adapter import _connect_kwargs  # noqa: PLC0415
+    from registro_core.errors import AdapterConnectionError  # noqa: PLC0415
+
+    missing = tmp_path / "missing-ca.pem"
+    with pytest.raises(AdapterConnectionError, match="invalid TLS settings"):
+        _connect_kwargs(Dsn.parse(f"mysql://u:p@db/app?ssl_ca={missing}"))

@@ -34,6 +34,7 @@ GLOBAL_BINDINGS: list[tuple[str, str, str]] = [
     # Not ``ctrl+h``: terminals send that for Backspace (it is ASCII BS), so an
     # app-level binding there fires on an ordinary edit keystroke.
     ("ctrl+g", "show_history", "Show history"),
+    ("ctrl+l", "set_row_limit", "Set row display limit"),
     ("question_mark", "help", "Help"),
     ("ctrl+q", "quit", "Quit"),
 ]

@@ -51,6 +51,16 @@ def _mask_query(query: str) -> str:
     return urlencode([(k, _REDACTED if is_secret_param(k) else v) for k, v in pairs], safe="*")
 
 
+def _netloc_host(host: str) -> str:
+    """Re-bracket an IPv6 literal for use in a URL authority.
+
+    ``urlsplit(...).hostname`` strips the brackets from ``[::1]``, and writing
+    it back bare produced ``user@::1:5432`` — which no parser can split into a
+    host and a port.
+    """
+    return f"[{host}]" if ":" in host else host
+
+
 def mask_dsn_password(url: str) -> str:
     """Mask credentials in a DSN URL to prevent password leaks in logs/errors.
 
@@ -65,7 +75,7 @@ def mask_dsn_password(url: str) -> str:
         netloc = parsed.netloc
         if parsed.password:
             user = quote(unquote(parsed.username), safe="") if parsed.username else ""
-            host = parsed.hostname or ""
+            host = _netloc_host(parsed.hostname or "")
             port = f":{parsed.port}" if parsed.port is not None else ""
             netloc = f"{user}:{_REDACTED}@{host}{port}"
         if netloc == parsed.netloc and query == parsed.query:
@@ -154,7 +164,7 @@ class Dsn(BaseModel):
                     "***" if mask_password else quote(self.password.get_secret_value(), safe="")
                 )
             userinfo += "@"
-        host = self.host or ""
+        host = _netloc_host(self.host or "")
         port = f":{self.port}" if self.port else ""
         # ``parse`` strips exactly one leading slash off the path, so ``render``
         # adds exactly one back. Anything more clever breaks the round trip:

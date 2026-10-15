@@ -14,11 +14,13 @@ ENV UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential curl ca-certificates \
+ && apt-get install -y --no-install-recommends build-essential ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
- && ln -s /root/.local/bin/uv /usr/local/bin/uv
+# A pinned uv from its official image, rather than ``curl | sh`` of whatever
+# the install script serves today: reproducible, and no script executed from
+# the network at build time. Bump deliberately, alongside the CI's uv.
+COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock* README.md ./
@@ -38,10 +40,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 RUN useradd -ms /bin/false -u 10001 registro
 
+# Only the environment: the package is installed into it (``--no-editable``),
+# so the source tree the builder worked from has no business in the image.
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /app /app
 
-WORKDIR /app
+WORKDIR /home/registro
 USER registro
 
 # `registro tui` needs a terminal: run it with `docker run -it`.

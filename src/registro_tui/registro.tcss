@@ -263,7 +263,7 @@ ResultsTable {
  * These widgets all declare `border: round $primary` above, so `$accent` here
  * swaps the colour without changing the box.
  *
- * `#schema-tree`, `#results-table` and `#sql-editor` are deliberately absent:
+ * `#schema-tree`, `#results-table` and `SqlEditor` are deliberately absent:
  * they have no border of their own, so a `:focus` rule here *added* one and
  * reflowed their content by two rows and two columns on every focus change.
  * Their containing panels already signal focus via `:focus-within` below. */

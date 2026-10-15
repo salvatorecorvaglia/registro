@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 from typing import TYPE_CHECKING
 
 import pytest
@@ -91,3 +92,30 @@ async def test_history_trim_commits_on_open(tmp_path: Path) -> None:
         assert len(recent) == 3
     finally:
         await h3.close()
+
+
+@pytest.mark.asyncio
+async def test_an_existing_parent_directory_keeps_its_permissions(tmp_path: Path) -> None:
+    """Regression: ``history_path`` must not chmod a directory we do not own.
+
+    Pointing it at ``~/Documents/history.db`` used to set ``~/Documents`` to 0700.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o755)
+
+    history = QueryHistory(shared / "history.db")
+    await history.open()
+    await history.close()
+
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert stat.S_IMODE((shared / "history.db").stat().st_mode) == 0o600
+
+
+@pytest.mark.asyncio
+async def test_a_directory_it_creates_is_private(tmp_path: Path) -> None:
+    history = QueryHistory(tmp_path / "new" / "history.db")
+    await history.open()
+    await history.close()
+
+    assert stat.S_IMODE((tmp_path / "new").stat().st_mode) == 0o700

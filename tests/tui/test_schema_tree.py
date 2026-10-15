@@ -151,3 +151,45 @@ async def test_introspection_retry_on_failure() -> None:
 
         assert len(lazy_node.children) > 0
         assert any(str(c.label) == "columns" for c in lazy_node.children)
+
+
+@pytest.mark.asyncio
+async def test_the_tree_expands_from_an_injected_introspector_without_a_host_state() -> None:
+    """The tree used to read ``self.app.state.introspector``, so it only worked
+    inside ``RegistroApp``. Any host can now hand it an introspector."""
+    from textual.app import App  # noqa: PLC0415
+
+    class _Introspector:
+        async def fetch_columns(self, schema: str, name: str) -> list[TableColumn]:
+            return [TableColumn(name="id", type_native="INTEGER")]
+
+        async def fetch_foreign_keys(self, schema: str, name: str) -> list[object]:
+            return []
+
+        async def fetch_indexes(self, schema: str, name: str) -> list[object]:
+            return []
+
+        def update_object(self, *args: object) -> None:
+            pass
+
+    class _Host(App[None]):
+        def compose(self):  # type: ignore[no-untyped-def]
+            yield SchemaTree()
+
+    app = _Host()
+    async with app.run_test() as pilot:
+        tree = app.query_one(SchemaTree)
+        tree.introspector = _Introspector()  # type: ignore[assignment]
+        tree.populate(
+            SchemaSnapshot(
+                connection_id="c", schemas={"main": [Table(name="t", schema_name="main")]}
+            )
+        )
+        await pilot.pause()
+        node = tree.root.children[0].children[0].children[0]
+        node.expand()
+        await pilot.pause()
+        await pilot.pause()
+
+        labels = [str(n.label) for n in node.children[0].children]
+        assert any("id" in label for label in labels)

@@ -65,6 +65,10 @@ class QueryCompleted(Event):
     query_id: str
     rows: int
     duration_ms: float
+    #: The consumer stopped reading before the end of the result set (a
+    #: display cap, a ``--limit``). ``rows`` counts what was read, not the
+    #: size of the full result.
+    truncated: bool = False
 
 
 class QueryFailed(Event):

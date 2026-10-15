@@ -120,7 +120,14 @@ class ResultsTable(DataTable[str]):
             if start + _CHUNK_ROWS < len(rows):
                 await asyncio.sleep(0)
 
-    def mark_done(self, *, cancelled: bool = False) -> None:
+    def mark_done(
+        self,
+        *,
+        cancelled: bool = False,
+        failed: bool = False,
+        affected_rows: int | None = None,
+        server_message: str | None = None,
+    ) -> None:
         """Summarize the finished run.
 
         ``cancelled`` flags the result set as incomplete so a partial result
@@ -132,8 +139,19 @@ class ResultsTable(DataTable[str]):
         mirrors :attr:`summary` onto ``#results-panel``, which is the bordered,
         titled container the user actually sees.
         """
-        if not self._initialized or self._row_count == 0:
-            self._summary = "cancelled — no rows" if cancelled else "no rows returned"
+        if failed and self._row_count == 0:
+            self._summary = "query failed"
+        elif cancelled and self._row_count == 0:
+            self._summary = "cancelled — no rows"
+        elif not self._initialized:
+            # No result set at all: DML or DDL. Saying "no rows returned" after
+            # an UPDATE read as if it had matched nothing.
+            if affected_rows is not None:
+                self._summary = f"{affected_rows} row{'s' if affected_rows != 1 else ''} affected"
+            else:
+                self._summary = server_message or "statement executed"
+        elif self._row_count == 0:
+            self._summary = "no rows returned"
         else:
             n = self._row_count
             parts = [f"{n} row{'s' if n != 1 else ''}"]
@@ -141,6 +159,8 @@ class ResultsTable(DataTable[str]):
                 parts.append(f"display capped at {self.max_rows}")
             if cancelled:
                 parts.append("cancelled (partial)")
+            elif failed:
+                parts.append("failed (partial)")
             self._summary = " · ".join(parts)
         self.border_subtitle = self._summary
 
@@ -178,7 +198,10 @@ class ResultsTable(DataTable[str]):
             p.parent.mkdir(parents=True, exist_ok=True)
             with contextlib.suppress(Exception):
                 p.parent.chmod(0o700)
-            with p.open("w", newline="", encoding="utf-8") as f:
+            # ``x``: refuse to overwrite. Callers pass a fresh path; an existing
+            # file there is a collision, and clobbering a previous export is
+            # exactly the silent data loss a unique name exists to prevent.
+            with p.open("x", newline="", encoding="utf-8") as f:
                 with contextlib.suppress(Exception):
                     p.chmod(0o600)
                 w = csv.writer(f)

@@ -53,6 +53,13 @@ class HistoryModal(BaseModal["HistoryEntry"]):
                 f"{entry.duration_ms or 0:.1f} ms  ·  "
                 f"{entry.rows or 0} rows[/]"
             )
+            if entry.error:
+                # First line only, clipped like the SQL preview: the modal is a
+                # list to pick from, not a place to read a full stack of detail.
+                reason = entry.error.strip().splitlines()[0] if entry.error.strip() else ""
+                if len(reason) > 80:
+                    reason = reason[:77] + "…"
+                label += f"\n   [$error]{escape(reason)}[/]"
             lst.append(ListItem(Static(label), id=f"history-{i}"))
         lst.focus()
 

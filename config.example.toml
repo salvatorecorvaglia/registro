@@ -1,7 +1,8 @@
 # Registro configuration file
 #
 # Default location:  ~/.config/registro/config.toml
-# Layered overrides: REGISTRO_<section>__<field> env vars > CLI flags
+# Precedence (lowest to highest): defaults < this file <
+# REGISTRO_<section>__<field> env vars < CLI flags
 
 [ui]
 # Theme name. Built-ins: "monokai" (warm) | "nord" (cool).
@@ -36,13 +37,15 @@ pool_size = 5
 # DEBUG | INFO | WARNING | ERROR
 level = "INFO"
 
-# Emit one JSON object per line. `null` auto-selects JSON in non-TTY
-# environments (CI/Docker) and pretty in a terminal.
+# Emit one JSON object per line. Leave unset to auto-select: JSON in non-TTY
+# environments (CI/Docker), pretty output in a terminal.
 # json_lines = false
 
 [plugins]
-# Allowlist — empty means "load everything discovered".
+# Allowlist, by plugin id or entry-point name — empty means "load everything
+# discovered".
 enabled = []
 
-# Block-list.
+# Block-list. Entry-point names (as shown by `registro plugins list`) are
+# skipped before the plugin is imported, so none of its code runs.
 disabled = []

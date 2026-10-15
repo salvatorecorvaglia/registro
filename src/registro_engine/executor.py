@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from registro_core.errors import QueryCancelledError, QueryError, QueryTimeoutError
+from registro_core.errors import (
+    QueryCancelledError,
+    QueryError,
+    QueryTimeoutError,
+    RegistroError,
+)
 from registro_core.events import (
     EventBus,
     QueryCancelled,
@@ -29,7 +34,7 @@ from registro_core.models.query import QueryStatus
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
 
-    from registro_core.models.query import QueryHandle
+    from registro_core.models.query import QueryHandle, QueryMetadata
     from registro_core.models.result import ResultBatch
     from registro_core.protocols.adapter import DatabaseAdapter
 
@@ -46,7 +51,11 @@ class QueryRun:
     rows: AsyncIterator[ResultBatch]
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     rows_emitted: int = 0
+    #: What the adapter reported about the finished statement — affected rows
+    #: for DML, the server's status message. ``None`` until the stream ends.
+    metadata: QueryMetadata | None = None
     _closed: bool = False
+    _finished_early: bool = False
 
     @property
     def query_id(self) -> str:
@@ -74,6 +83,19 @@ class QueryRun:
         aclose = getattr(self.rows, "aclose", None)
         if aclose is not None:
             await aclose()
+
+    async def finish_early(self) -> None:
+        """Stop reading because the consumer has all the rows it wants.
+
+        For a display cap or a ``--limit``. Unlike :meth:`aclose`, which treats
+        an abandoned stream as a cancellation, this reports the run as
+        *completed* — with ``QueryCompleted.truncated`` set — because nothing
+        went wrong: the query succeeded and the caller chose to read less of it.
+        A truncated display was otherwise indistinguishable from a cancelled
+        query, in the status bar and in the history.
+        """
+        self._finished_early = True
+        await self.aclose()
 
 
 class QueryExecutor:
@@ -122,13 +144,11 @@ class QueryExecutor:
         try:
             handle = await self._adapter.execute(sql, params)
         except Exception as exc:
-            self._bus.publish(
-                QueryFailed(
-                    query_id=query_id,
-                    error_code=exc.code if isinstance(exc, QueryError) else _UNEXPECTED,
-                    message=str(exc),
-                )
-            )
+            if isinstance(exc, RegistroError):
+                # Lets a caller that never got a handle still correlate the
+                # failure with its ``QueryFailed`` event (and history entry).
+                exc.context.setdefault("query_id", query_id)
+            self._publish_terminal(query_id, exc)
             raise
 
         # Bind the query identity into the structured-logging contextvar so
@@ -150,8 +170,17 @@ class QueryExecutor:
         # must clear the logging context ourselves.
         try:
             source = await self._adapter.stream(handle, batch_size=batch_size)
-        except BaseException:
+        except BaseException as exc:
             reset_context(token)
+            # ``QueryStarted`` is already out, so a terminal event must follow
+            # or subscribers are left showing the query as running.
+            if handle.finished_at is None:
+                handle.mark_done(
+                    QueryStatus.CANCELLED
+                    if isinstance(exc, QueryCancelledError | asyncio.CancelledError)
+                    else QueryStatus.FAILED
+                )
+            self._publish_terminal(handle.query_id, exc)
             raise
         run = QueryRun(handle=handle, rows=source)
 
@@ -209,6 +238,7 @@ class QueryExecutor:
                             "query cancelled", context={"query_id": handle.query_id}
                         )
                     yield batch
+                run.metadata = await self._metadata(handle)
                 self._bus.publish(
                     QueryCompleted(
                         query_id=handle.query_id,
@@ -217,6 +247,20 @@ class QueryExecutor:
                     )
                 )
             except GeneratorExit:
+                if run._finished_early and not run.cancel_event.is_set():
+                    # The consumer read what it wanted (``finish_early``): a
+                    # successful, truncated run.
+                    if handle.finished_at is None:
+                        handle.mark_done(QueryStatus.SUCCEEDED)
+                    self._bus.publish(
+                        QueryCompleted(
+                            query_id=handle.query_id,
+                            rows=run.rows_emitted,
+                            duration_ms=_elapsed_ms(),
+                            truncated=True,
+                        )
+                    )
+                    raise
                 # The consumer abandoned the stream (early ``break`` + aclose).
                 # That is a cancellation, not a completion — reporting it as a
                 # success would record a partial read as the full result.
@@ -224,23 +268,14 @@ class QueryExecutor:
                     handle.mark_done(QueryStatus.CANCELLED)
                 self._bus.publish(QueryCancelled(query_id=handle.query_id))
                 raise
-            except QueryCancelledError:
-                self._bus.publish(QueryCancelled(query_id=handle.query_id))
-                raise
-            except asyncio.CancelledError:
+            except (QueryCancelledError, asyncio.CancelledError) as exc:
                 # CancelledError is a BaseException, so without this the run
                 # would end with no terminal event and leave the UI stuck on
                 # "running".
-                self._bus.publish(QueryCancelled(query_id=handle.query_id))
+                self._publish_terminal(handle.query_id, exc)
                 raise
             except Exception as exc:
-                self._bus.publish(
-                    QueryFailed(
-                        query_id=handle.query_id,
-                        error_code=exc.code if isinstance(exc, QueryError) else _UNEXPECTED,
-                        message=str(exc),
-                    )
-                )
+                self._publish_terminal(handle.query_id, exc)
                 raise
             finally:
                 # Finalize the adapter's generator too. Closing ``_wrap`` alone
@@ -263,6 +298,31 @@ class QueryExecutor:
 
         run.rows = _wrap()
         return run
+
+    async def _metadata(self, handle: QueryHandle) -> QueryMetadata | None:
+        """The adapter's metadata for *handle*, or ``None`` if it cannot say.
+
+        Informational only, so a failure here must never fail a query that
+        has already succeeded.
+        """
+        try:
+            return await self._adapter.metadata(handle)
+        except Exception:
+            logger.warning("query_metadata_unavailable", query_id=handle.query_id, exc_info=True)
+            return None
+
+    def _publish_terminal(self, query_id: str, exc: BaseException) -> None:
+        """Publish the terminal event that matches how a run ended in *exc*."""
+        if isinstance(exc, QueryCancelledError | asyncio.CancelledError):
+            self._bus.publish(QueryCancelled(query_id=query_id))
+            return
+        self._bus.publish(
+            QueryFailed(
+                query_id=query_id,
+                error_code=exc.code if isinstance(exc, QueryError) else _UNEXPECTED,
+                message=exc.message if isinstance(exc, QueryError) else str(exc),
+            )
+        )
 
     async def cancel(self, run: QueryRun) -> None:
         """Cooperative cancellation; safe to call multiple times."""

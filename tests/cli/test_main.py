@@ -242,3 +242,13 @@ def test_run_summary_distinguishes_printed_rows_from_rows_read() -> None:
     assert uncapped.exit_code == 0, uncapped.output
     assert "5 row(s)" in uncapped.output
     assert " of " not in uncapped.output.split("row(s)")[0].splitlines()[-1]
+
+
+def test_run_reports_rows_affected_for_dml(tmp_path: Path) -> None:
+    dsn = f"sqlite:///{tmp_path / 'db.sqlite'}"
+    created = runner.invoke(app, ["run", "--dsn", dsn, "CREATE TABLE t (id INTEGER)"])
+    assert created.exit_code == 0, created.output
+
+    inserted = runner.invoke(app, ["run", "--dsn", dsn, "INSERT INTO t VALUES (1), (2), (3)"])
+    assert inserted.exit_code == 0, inserted.output
+    assert "3 rows affected" in inserted.output

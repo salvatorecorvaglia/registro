@@ -24,8 +24,9 @@ if TYPE_CHECKING:
 class ActionBar(Static):
     DEFAULT_CSS = ""
 
-    limit: reactive[int] = reactive(500)
-    connection_status: reactive[str] = reactive("Disconnected.")
+    # Matches ``UIConfig.max_display_rows``' default; the app sets the real
+    # value on mount. The old default (500) flashed a wrong cap at startup.
+    limit: reactive[int] = reactive(10_000)
 
     def __init__(self) -> None:
         super().__init__(id="action-bar")

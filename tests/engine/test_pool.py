@@ -252,3 +252,65 @@ async def test_close_returns_the_permit_of_a_cancelled_connection_task() -> None
     await asyncio.sleep(0)
 
     assert pool._sem._value == 1, "pool permit was not returned after close()"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_fails_to_reset_is_replaced_not_reused() -> None:
+    """Regression: a broken connection went straight back into the pool.
+
+    ``reset()`` failing means the connection could not be returned to a clean
+    state (stuck in a transaction, or dead after a server restart). Reusing it
+    handed every later query the same failure.
+    """
+    built: list[SQLiteAdapter] = []
+
+    async def tracking(dsn: Dsn) -> DatabaseAdapter:
+        a = SQLiteAdapter()
+        await a.connect(dsn)
+        built.append(a)
+        return a
+
+    pool = ConnectionPool(Dsn.parse(_MEM), tracking, size=1)
+    try:
+        async with pool.acquire() as first:
+
+            async def _broken_reset() -> None:
+                raise RuntimeError("server closed the connection")
+
+            first.reset = _broken_reset  # type: ignore[method-assign]
+
+        assert not first.connected, "the unusable connection was not closed"
+        async with asyncio.timeout(2):
+            async with pool.acquire() as second:
+                assert second is not first
+                assert await second.ping()
+        assert len(built) == 2
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_a_preloaded_connection_is_kept_even_if_reset_fails() -> None:
+    """The pool cannot rebuild a preloaded adapter — e.g. in-memory DuckDB,
+    whose data lives only in that one connection — so it must not drop it."""
+
+    async def _refuse(dsn: Dsn) -> DatabaseAdapter:
+        raise AssertionError("the pool tried to replace a preloaded adapter")
+
+    only = await _factory(Dsn.parse(_MEM))
+    pool = ConnectionPool(Dsn.parse(_MEM), _refuse, size=1)
+    await pool.preload(only)
+    try:
+
+        async def _broken_reset() -> None:
+            raise RuntimeError("transient")
+
+        only.reset = _broken_reset  # type: ignore[method-assign]
+        async with pool.acquire():
+            pass
+        async with asyncio.timeout(2):
+            async with pool.acquire() as again:
+                assert again is only
+                assert await again.ping()
+    finally:
+        await pool.close()

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -23,7 +26,6 @@ from registro_core.errors import QueryCancelledError, QueryError, RegistroError
 from registro_core.events import (
     EventBus,
     QueryCompleted,
-    QueryFailed,
     QueryStarted,
 )
 from registro_core.logging import clear_context, configure_logging, get_logger
@@ -59,6 +61,48 @@ logger = get_logger(__name__)
 # tests can find it, and so a stray second run is visible in the worker list.
 _QUERY_WORKER = "registro-query"
 
+# How long the second key of a sequence such as vim's ``gg`` may lag the first.
+_SEQUENCE_TIMEOUT = 0.5
+
+# A statement that opens an explicit transaction, after any leading comments.
+_OPENS_TRANSACTION = re.compile(
+    r"^\s*(?:(?:--[^\n]*(?:\n|$)|/\*.*?\*/)\s*)*(?:BEGIN|START\s+TRANSACTION)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Driver messages meaning "one statement per execute". SQLite and Postgres
+# (whose prepared statements hold exactly one command) refuse a script outright.
+_MULTI_STATEMENT_ERRORS = (
+    "only execute one statement at a time",
+    "cannot insert multiple commands into a prepared statement",
+)
+
+
+def _opens_transaction(sql: str) -> bool:
+    return _OPENS_TRANSACTION.match(sql) is not None
+
+
+def _hint_for(detail: str) -> str | None:
+    """A next step for an error the user can fix from the editor, if any."""
+    lowered = detail.lower()
+    if any(marker in lowered for marker in _MULTI_STATEMENT_ERRORS):
+        return (
+            "This database runs one statement at a time. Select a single "
+            "statement and run it — only the selection is executed."
+        )
+    return None
+
+
+def _export_path() -> Path:
+    """A fresh, never-reused path under ``~/.registro/exports``.
+
+    The name used to be ``export-<unix seconds>.csv``, so a second export within
+    the same second silently overwrote the first. The timestamp keeps names
+    sortable and human-readable; the random suffix makes them unique.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Path.home() / ".registro" / "exports" / f"export-{stamp}-{uuid.uuid4().hex[:6]}.csv"
+
 
 class RegistroApp(App[None]):
     """The Registro Textual application."""
@@ -85,14 +129,48 @@ class RegistroApp(App[None]):
         self._current_run: QueryRun | None = None
         self._run_executor: QueryExecutor | None = None
         self._query_in_flight = False
-        self._palette_task: asyncio.Task[None] | None = None
+        # Every in-flight command-palette handler. A set, not the last one only:
+        # the event loop keeps just a weak reference to a task, so a handler
+        # nobody holds can be garbage-collected mid-run, and unmount has to be
+        # able to cancel all of them.
+        self._palette_tasks: set[asyncio.Task[None]] = set()
         self._session: Session | None = None
         self._connect_lock = asyncio.Lock()
+        # Two-key sequences (vim's ``gg``) and the first half of one, if typed.
+        self._sequences: dict[tuple[str, str], str] = {}
+        self._pending_key: tuple[str, float] | None = None
         if self.cfg.ui.keymap == "vim":
             for key, action, desc in VIM_BINDINGS:
                 if (key, action, desc) in DEFAULT_BINDINGS:
                     continue
-                self.bind(key, action, description=desc)
+                if "," in key:
+                    self._bind_sequence(key, action, desc)
+                else:
+                    self.bind(key, action, description=desc)
+
+    def _bind_sequence(self, key: str, action: str, desc: str) -> None:
+        """Bind a keymap entry written ``first,second`` as a key *sequence*.
+
+        Textual has no sequences: in a binding, a comma means "any of these
+        keys", so ``g,g`` handed straight to ``bind`` fired on a single ``g``.
+        Each key of the sequence is bound to :meth:`action_sequence_key`, which
+        runs *action* only when both arrive within :data:`_SEQUENCE_TIMEOUT`.
+        """
+        first, second = key.split(",", 1)
+        self._sequences[(first, second)] = action
+        for part in dict.fromkeys((first, second)):
+            self.bind(part, f"sequence_key('{part}')", description=desc, show=False)
+
+    async def action_sequence_key(self, key: str) -> None:
+        now = time.monotonic()
+        pending, self._pending_key = self._pending_key, None
+        if pending is not None and now - pending[1] <= _SEQUENCE_TIMEOUT:
+            action = self._sequences.get((pending[0], key))
+            if action is not None:
+                await self.run_action(action)
+                return
+        if any(first == key for first, _ in self._sequences):
+            self._pending_key = (key, now)
 
     # ---- lifecycle -----------------------------------------------------
 
@@ -149,10 +227,11 @@ class RegistroApp(App[None]):
         if self._current_run is not None:
             with contextlib.suppress(Exception):
                 await self.action_cancel_query()
-        if self._palette_task is not None and not self._palette_task.done():
-            self._palette_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._palette_task
+        pending = [t for t in self._palette_tasks if not t.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         loader = self._loader
         if loader is not None:
             with contextlib.suppress(Exception):
@@ -295,15 +374,11 @@ class RegistroApp(App[None]):
             bar.has_run = True
             bar.notify_status("ok", "success")
 
-        async def on_failed(ev: QueryFailed) -> None:
-            self._report_error(ev.error_code, ev.message)
-
         async def on_action(ev: RunActionRequested) -> None:
             await self.run_action(ev.action)
 
         self.state.bus.subscribe(QueryStarted, on_started)
         self.state.bus.subscribe(QueryCompleted, on_completed)
-        self.state.bus.subscribe(QueryFailed, on_failed)
         self.state.bus.subscribe(RunActionRequested, on_action)
 
     async def _connect(self, dsn: Dsn) -> None:
@@ -325,18 +400,22 @@ class RegistroApp(App[None]):
 
             await self._adopt(session)
             bar.connection = session.dsn.render(mask_password=True)
-            await self.action_refresh_schema()
-            # Clear the transient message so the footer shows "Database Connected."
-            bar.notify_status("")
+            if await self._refresh_schema():
+                # Clear the transient message so the footer shows "Database
+                # Connected." — but only on success: clearing unconditionally
+                # wiped a refresh error off the status line the moment it landed.
+                bar.notify_status("")
 
     async def _adopt(self, session: Session | None) -> None:
         """Install *session* as the current one, closing whatever it replaces."""
         previous = self._session
         self._session = session
         self.state.dsn = session.dsn if session else None
-        self.state.adapter = session.adapter if session else None
+        self.state.introspection_adapter = session.adapter if session else None
         self.state.pool = session.pool if session else None
         self.state.introspector = session.introspector if session else None
+        with contextlib.suppress(Exception):
+            self._tree().introspector = self.state.introspector
         self.state.history = session.history if session else None
         if previous is not None:
             await previous.close()
@@ -399,7 +478,12 @@ class RegistroApp(App[None]):
         from the server. The toast carries the full text; the status line keeps
         the short form so the last error stays visible after the toast fades.
         """
-        detail = str(exc)
+        # ``message``, not ``str()``: a RegistroError's ``str`` carries its code
+        # and context — for a query error, the entire SQL as a dict repr —
+        # which is for the log, not for a one-line status or a toast.
+        detail = exc.message if isinstance(exc, RegistroError) else str(exc)
+        if isinstance(exc, RegistroError):
+            logger.info("error_reported", headline=headline, error=str(exc))
         # Plain text: StatusBar builds its own Content and never parses this,
         # so a driver message full of brackets needs no escaping here.
         self._status().notify_status(f"{headline}: {detail}", "error")
@@ -408,7 +492,9 @@ class RegistroApp(App[None]):
         # bracket-quoted identifier, a Python repr. Parsed as markup, ``[/]``
         # raised MarkupError mid-render and ``near [col]`` silently deleted the
         # one identifier the user needed to see.
-        self.notify(detail, title=headline, severity="error", timeout=10, markup=False)
+        hint = _hint_for(detail)
+        toast = f"{detail}\n\n{hint}" if hint else detail
+        self.notify(toast, title=headline, severity="error", timeout=10, markup=False)
 
     def on_schema_tree_introspection_failed(self, event: SchemaTree.IntrospectionFailed) -> None:
         """Surface a failed lazy schema load the same way every other error is."""
@@ -439,12 +525,27 @@ class RegistroApp(App[None]):
             self._status().notify_status("not connected", "warning")
             return
         editor = self._tabs().current_editor
-        if editor is None or not editor.sql.strip():
+        # A selection runs on its own — the way to execute one statement out of
+        # a script, on the databases that accept only one per call.
+        sql = (editor.selected_text or editor.sql) if editor is not None else ""
+        if not sql.strip():
             self._status().notify_status("nothing to run", "warning")
             return
+        if _opens_transaction(sql):
+            # Each run gets a pooled connection that is reset — rolled back —
+            # when the run ends, so a BEGIN never survives to the next run and
+            # the statements after it autocommit. Say so rather than let the
+            # user believe their COMMIT will cover them.
+            self.notify(
+                "Each run is committed on its own: a transaction opened here is "
+                "rolled back when this run finishes, and later runs autocommit.",
+                title="Explicit transactions are not kept",
+                severity="warning",
+                timeout=10,
+            )
         self._query_in_flight = True
         self.run_worker(
-            self._stream_query(pool, editor.sql),
+            self._stream_query(pool, sql),
             name=_QUERY_WORKER,
             group=_QUERY_WORKER,
         )
@@ -475,10 +576,14 @@ class RegistroApp(App[None]):
                     )
                 except QueryError as exc:
                     results.loading = False
+                    results.mark_done(failed=True)
+                    self._set_results_summary(results.summary)
                     self._report_error("Query failed", exc)
-                    await self._record_history(sql)
+                    await self._record_history(sql, error=exc)
                     return
                 cancelled = False
+                failed = False
+                stream_error: RegistroError | None = None
                 run = self._current_run
                 try:
                     async for batch in run.rows:
@@ -490,19 +595,35 @@ class RegistroApp(App[None]):
                     cancelled = True
                     self._status().notify_status("cancelled", "warning")
                 except RegistroError as exc:
+                    failed = True
+                    stream_error = exc
                     self._report_error("Query failed", exc)
+                except BaseException:
+                    failed = True
+                    raise
                 finally:
                     # Close the stream before the adapter goes back to the pool.
                     # Abandoning it (the ``truncated`` break above) would leave a
                     # server-side cursor — and, on Postgres, an open transaction
                     # — on a connection the next query is about to reuse.
+                    # Stopping at the display cap is a *successful* run that read
+                    # less, not a cancellation: ``finish_early`` reports it so.
                     with contextlib.suppress(Exception):
-                        await run.aclose()
+                        if results.truncated and not cancelled:
+                            await run.finish_early()
+                        else:
+                            await run.aclose()
                     results.loading = False
-                    results.mark_done(cancelled=cancelled)
+                    meta = run.metadata
+                    results.mark_done(
+                        cancelled=cancelled,
+                        failed=failed,
+                        affected_rows=meta.affected_rows if meta else None,
+                        server_message=meta.server_message if meta else None,
+                    )
                     self._set_results_summary(results.summary)
                     self._status().truncated = results.truncated
-                    await self._record_history(sql)
+                    await self._record_history(sql, error=stream_error)
         except Exception as exc:
             # Failure before/around streaming — e.g. pool acquisition or
             # connection setup. Clear the spinner so the table isn't stuck.
@@ -528,7 +649,7 @@ class RegistroApp(App[None]):
         if results.row_count == 0:
             self._status().notify_status("nothing to export", "warning")
             return
-        path = Path.home() / ".registro" / "exports" / f"export-{int(time.time())}.csv"
+        path = _export_path()
         try:
             n = await results.export_csv(path)
         except OSError as exc:
@@ -567,6 +688,18 @@ class RegistroApp(App[None]):
                 self._results().max_rows = new_limit
             with contextlib.suppress(Exception):
                 self._action_bar().limit = new_limit
+            if new_limit == 0:
+                # Every row of a result is held in memory — twice, raw and as
+                # rendered — so "unlimited" on a big table is a way to run out.
+                self.notify(
+                    "Every row of a result will be kept in memory. Large result "
+                    "sets can exhaust it; prefer a cap or a LIMIT clause.",
+                    title="Row display limit removed",
+                    severity="warning",
+                    timeout=8,
+                )
+                self._status().notify_status("Row limit removed (unlimited)", "warning")
+                return
             self._status().notify_status(f"Row limit set to {new_limit}")
 
         await self.push_screen(RowLimitModal(current_limit), _on_limit)
@@ -580,16 +713,27 @@ class RegistroApp(App[None]):
             await executor.cancel(run)
 
     async def action_refresh_schema(self) -> None:
+        await self._refresh_schema()
+
+    async def _refresh_schema(self) -> bool:
+        """Reload the schema tree. Returns ``False`` when the refresh failed."""
         if self.state.introspector is None:
-            return
+            return False
         self._status().notify_status("refreshing schema…")
         try:
             snap = await self.state.introspector.refresh(lazy=True)
-        except RegistroError as exc:
+        except Exception as exc:
+            # Broad on purpose: this runs inside the connect worker, and an
+            # exception escaping a worker exits the whole app. The introspector
+            # already maps driver errors onto RegistroError; this is the
+            # backstop for anything it does not.
+            if not isinstance(exc, RegistroError):
+                logger.exception("schema_refresh_failed")
             self._report_error("Schema refresh failed", exc)
-            return
+            return False
         self._tree().populate(snap)
         self._status().notify_status(f"schema refreshed · {snap.object_count} object(s)")
+        return True
 
     async def action_focus_editor_top(self) -> None:
         editor = self._tabs().current_editor
@@ -631,7 +775,8 @@ class RegistroApp(App[None]):
             else:
                 return
             task = asyncio.ensure_future(result.handler(ctx))
-            self._palette_task = task
+            self._palette_tasks.add(task)
+            task.add_done_callback(self._palette_tasks.discard)
 
             def _report(done: asyncio.Task[None]) -> None:
                 if done.cancelled():
@@ -667,7 +812,7 @@ class RegistroApp(App[None]):
 
     # ---- history ------------------------------------------------------
 
-    async def _record_history(self, sql: str) -> None:
+    async def _record_history(self, sql: str, *, error: BaseException | None = None) -> None:
         if self.state.history is None:
             return
         if self._current_run is not None:
@@ -677,10 +822,16 @@ class RegistroApp(App[None]):
             duration = run.duration_ms
             rows = run.rows_emitted
         else:
-            query_id = "-"
+            # Failed before a run existed. The executor still minted an id and
+            # published it on ``QueryFailed``; it rides on the error's context.
+            context = error.context if isinstance(error, RegistroError) else {}
+            query_id = str(context.get("query_id", "-"))
             status_val = "failed"
             duration = None
             rows = 0
+        detail: str | None = None
+        if error is not None:
+            detail = error.message if isinstance(error, RegistroError) else str(error)
 
         await self.state.history.add(
             HistoryEntry(
@@ -692,5 +843,6 @@ class RegistroApp(App[None]):
                 status=status_val,
                 duration_ms=duration,
                 rows=rows,
+                error=detail,
             )
         )

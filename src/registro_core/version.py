@@ -11,7 +11,13 @@ from importlib.metadata import PackageNotFoundError, version
 
 __all__ = ["__version__"]
 
+# The *distribution* name, which is what ``importlib.metadata`` indexes by. It
+# differs from the import packages (``registro_core`` & co.) and from the
+# command name; looking up ``"registro"`` after the rename to ``registro-db``
+# always missed, so every install silently reported the fallback below.
+DISTRIBUTION = "registro-db"
+
 try:
-    __version__ = version("registro")
+    __version__ = version(DISTRIBUTION)
 except PackageNotFoundError:  # pragma: no cover - only without installed metadata
-    __version__ = "1.0.0"  # fallback for source trees without metadata
+    __version__ = "1.1.0"  # fallback for source trees without metadata
