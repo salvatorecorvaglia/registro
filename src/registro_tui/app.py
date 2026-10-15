@@ -64,10 +64,10 @@ _QUERY_WORKER = "registro-query"
 # How long the second key of a sequence such as vim's ``gg`` may lag the first.
 _SEQUENCE_TIMEOUT = 0.5
 
-# A statement that opens an explicit transaction, after any leading comments.
+# Match only the statement prefix; leading comments are scanned separately.
 _OPENS_TRANSACTION = re.compile(
-    r"^\s*(?:(?:--[^\n]*(?:\n|$)|/\*.*?\*/)\s*)*(?:BEGIN|START\s+TRANSACTION)\b",
-    re.IGNORECASE | re.DOTALL,
+    r"(?:BEGIN|START\s+TRANSACTION)\b",
+    re.IGNORECASE,
 )
 
 # Driver messages meaning "one statement per execute". SQLite and Postgres
@@ -79,7 +79,24 @@ _MULTI_STATEMENT_ERRORS = (
 
 
 def _opens_transaction(sql: str) -> bool:
-    return _OPENS_TRANSACTION.match(sql) is not None
+    """Skip leading whitespace/comments in linear time, then check the command."""
+    pos = 0
+    while pos < len(sql):
+        if sql[pos].isspace():
+            pos += 1
+        elif sql.startswith("--", pos):
+            end = sql.find("\n", pos + 2)
+            if end == -1:
+                return False
+            pos = end + 1
+        elif sql.startswith("/*", pos):
+            end = sql.find("*/", pos + 2)
+            if end == -1:
+                return False
+            pos = end + 2
+        else:
+            break
+    return _OPENS_TRANSACTION.match(sql, pos) is not None
 
 
 def _hint_for(detail: str) -> str | None:
