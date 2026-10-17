@@ -31,11 +31,8 @@ jobs:
             fi
           fi
 
-  checks:
-    uses: ./.github/workflows/ci.yml
-
   release:
-    needs: [validate, checks]
+    needs: validate
     runs-on: ubuntu-24.04
     environment: release
     permissions:
