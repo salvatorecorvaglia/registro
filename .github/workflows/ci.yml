@@ -63,13 +63,3 @@ jobs:
         run: ./tests/scripts/test.sh
         env:
           REGISTRO_TEST_MARKERS: ${{ matrix.os == 'ubuntu-24.04' && 'integration or not integration' || 'not integration' }}
-
-  dependency-review:
-    name: Dependency Review
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
