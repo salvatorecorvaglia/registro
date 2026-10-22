@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Update the pinned Ruff development dependency to 0.17.1.
+- Cancel in-progress CI runs when a newer run starts for the same workflow and ref, and run CI for changes under `docs/` unless all changed files are Markdown.
+- Remove the pull-request dependency review job and the release workflow's duplicate CI run; releases now depend on version validation.
+
+### Fixed
+
+- Avoid exponential regular-expression backtracking when detecting explicit transactions in SQL with repeated leading comment delimiters, using a linear-time comment scan.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added
