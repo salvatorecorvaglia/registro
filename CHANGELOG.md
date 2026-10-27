@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update the pinned Ruff development dependency to 0.17.1.
 - Update the locked `certifi` development dependency to 2026.10.23, which drops the emSign ECC Root CA - G3 root after eMudhra revoked intermediates with compromised keys.
 - Cancel in-progress CI runs when a newer run starts for the same workflow and ref, and run CI for changes under `docs/` unless all changed files are Markdown.
-- Remove the pull-request dependency review job and the release workflow's duplicate CI run; releases now depend on version validation.
+- Remove the pull-request dependency review job.
+- Require an existing `v`-prefixed tag and the reusable CI checks before publishing a release.
+
 
 ### Fixed
 
