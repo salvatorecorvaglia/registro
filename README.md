@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/registro.svg" alt="Registro logo" width="96" height="96">
+</p>
+
 # Registro 📟
 
 **A terminal-first database workspace for modern engineers**
