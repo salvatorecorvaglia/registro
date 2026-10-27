@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add compatible stable-release checks, background TUI notifications, and confirmed uv/pipx tool upgrades with a dry-run option.
+
 ### Changed
 
 - Update the pinned Ruff development dependency to 0.17.1.

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import time
 import uuid
@@ -225,6 +226,8 @@ class RegistroApp(App[None]):
 
     async def on_mount(self) -> None:
         self._setup_logging()
+        if not self.is_headless and os.environ.get("REGISTRO_DISABLE_UPDATE_CHECK") != "1":
+            self.run_worker(self._check_for_updates(), group="updates")
         self._apply_theme()
         self._apply_border_titles()
         await self._load_plugins()
@@ -239,6 +242,19 @@ class RegistroApp(App[None]):
             self.run_worker(self._connect(self._initial_dsn))
         else:
             self._show_connection_dialog()
+
+    async def _check_for_updates(self) -> None:
+        from registro_core.updates import check_update  # noqa: PLC0415
+
+        try:
+            latest = await asyncio.to_thread(check_update, cached=True)
+            if latest:
+                self.notify(
+                    f"Registro {latest} is available. Run registro upgrade after quitting.",
+                    timeout=12,
+                )
+        except Exception:
+            logger.debug("update_check_unavailable")
 
     async def on_unmount(self) -> None:
         if self._current_run is not None:

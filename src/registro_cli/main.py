@@ -129,6 +129,39 @@ def _cli_log_level(ctx: typer.Context) -> str | None:
 
 
 @app.command()
+def check_updates() -> None:
+    """Check PyPI for a newer compatible stable release."""
+    from registro_core.updates import check_update, current_version  # noqa: PLC0415
+
+    try:
+        latest = check_update()
+        typer.echo(
+            f"Update available: {latest}. Run registro upgrade."
+            if latest
+            else f"Registro {current_version()} is up to date."
+        )
+    except Exception as exc:
+        typer.echo(f"Could not check updates: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@app.command()
+def upgrade(
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the upgrade.")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show the command only.")] = False,
+) -> None:
+    """Upgrade this tool using its original uv or pipx installation."""
+    from registro_core.updates import upgrade as run_upgrade  # noqa: PLC0415
+
+    try:
+        code = run_upgrade(yes=yes, dry_run=dry_run)
+    except (OSError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
+
+
+@app.command()
 def version() -> None:
     """Print Registro version and discovered adapter drivers."""
     from registro_core.version import __version__  # noqa: PLC0415 - keep CLI startup fast
