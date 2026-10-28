@@ -20,4 +20,4 @@ DISTRIBUTION = "registro-db"
 try:
     __version__ = version(DISTRIBUTION)
 except PackageNotFoundError:  # pragma: no cover - only without installed metadata
-    __version__ = "1.1.0"  # fallback for source trees without metadata
+    __version__ = "1.2.0"  # fallback for source trees without metadata

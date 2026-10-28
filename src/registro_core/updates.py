@@ -20,7 +20,7 @@ from packaging.version import InvalidVersion, Version
 
 PACKAGE = "registro-db"
 COMMAND = "registro"
-FALLBACK_VERSION = "1.1.0"
+FALLBACK_VERSION = "1.2.0"
 MAX_RESPONSE = 2 * 1024 * 1024
 
 
