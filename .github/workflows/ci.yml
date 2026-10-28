@@ -19,26 +19,31 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: true
-          cache-suffix: "lint"
-          python-version: "3.13"
-
-      - name: Sync workspace
-        run: uv sync --all-extras --dev --frozen
-
-      - name: Lint (ruff format + check + mypy)
-        run: ./scripts/lint.sh
-
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: ${{ matrix.os == 'ubuntu-24.04' && 'postgres:16-alpine' || '' }}
+        env:
+          POSTGRES_DB: registro
+          POSTGRES_USER: registro
+          POSTGRES_PASSWORD: registro
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U registro -d registro"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      mysql:
+        image: ${{ matrix.os == 'ubuntu-24.04' && 'mysql:8.0' || '' }}
+        env:
+          MYSQL_DATABASE: registro
+          MYSQL_USER: registro
+          MYSQL_PASSWORD: registro
+          MYSQL_ROOT_PASSWORD: registro-root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uregistro -pregistro"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     defaults:
       run:
         shell: bash
@@ -59,7 +64,58 @@ jobs:
       - name: Sync workspace
         run: uv sync --all-extras --dev --frozen
 
+      - name: Lint on Linux
+        if: matrix.os == 'ubuntu-24.04'
+        run: ./scripts/lint.sh
+      - name: Require the live database drivers on Linux
+        if: matrix.os == 'ubuntu-24.04'
+        run: uv run --frozen python -c 'import asyncpg, asyncmy'
       - name: Test (pytest + coverage gate)
         run: ./tests/scripts/test.sh
         env:
+          REGISTRO_PG_DSN: ${{ matrix.os == 'ubuntu-24.04' && 'postgres://registro:registro@localhost:5432/registro' || '' }}
+          REGISTRO_MYSQL_DSN: ${{ matrix.os == 'ubuntu-24.04' && 'mysql://registro:registro@127.0.0.1:3306/registro' || '' }}
           REGISTRO_TEST_MARKERS: ${{ matrix.os == 'ubuntu-24.04' && 'integration or not integration' || 'not integration' }}
+
+      - name: Retain per-test and fixture timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-timings-${{ matrix.os }}
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package:
+    name: Build and validate Python distributions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Build sdist and wheel from sdist
+        run: uv build --out-dir dist
+      - name: Validate distribution metadata
+        run: uvx --from twine twine check --strict dist/*.whl dist/*.tar.gz
+      - name: Install wheel and sdist independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in "$GITHUB_WORKSPACE"/dist/*.whl "$GITHUB_WORKSPACE"/dist/*.tar.gz; do
+            smoke_dir=$(mktemp -d)
+            uv venv "$smoke_dir/venv" --python 3.13
+            uv pip install --python "$smoke_dir/venv/bin/python" "$package"
+          done
+      - name: Generate checksums
+        run: (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-packages
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
