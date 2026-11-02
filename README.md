@@ -120,50 +120,6 @@ registro plugins list
 
 ---
 
-## 🎹 Keybindings
-
-Registro provides a responsive, keyboard-driven interface with collision-free shortcuts.
-
-### Global Shortcuts
-
-Available everywhere across the application:
-
-| Key | Action | Description |
-| :--- | :--- | :--- |
-| `Ctrl+Enter` / `Ctrl+J` | Run Query | Execute SQL query in the active editor tab |
-| `Ctrl+B` | Cancel Query | Abort the running query without freezing the UI |
-| `Ctrl+P` | Command Palette | Open fuzzy command palette |
-| `Ctrl+T` | New Tab | Open a new SQL query editor tab |
-| `Ctrl+O` | Close Tab | Close the active query tab |
-| `Ctrl+R` | Refresh Schema | Refresh database catalog and schema tree |
-| `Ctrl+G` | Query History | Browse and re-run past queries |
-| `?` | Help | Show keyboard shortcuts modal |
-| `Ctrl+Q` | Quit | Exit Registro |
-
-> [!NOTE]
-> Query cancellation is bound to `Ctrl+B` (break) and tab closing to `Ctrl+O` to avoid colliding with text editor controls (`Ctrl+C` for copying text and `Ctrl+W` for deleting words).
-
-### Results Grid Shortcuts
-
-Active when the query results table is focused:
-
-| Key | Action | Description |
-| :--- | :--- | :--- |
-| `Ctrl+Y` | Copy Cell | Copy selected cell value to clipboard |
-| `Ctrl+E` | Export CSV | Export current query result set to CSV file |
-
-### Vim Keymap Mode
-
-Set `keymap = "vim"` in `config.toml` (or `REGISTRO_UI__KEYMAP="vim"`) to enable Vim-style navigation:
-
-| Key | Action | Description |
-| :--- | :--- | :--- |
-| `:` | Command Palette | Open fuzzy command palette (Ex command) |
-| `gg` | Editor Top | Move cursor to the top of the editor |
-| `G` (`Shift+G`) | Editor Bottom | Move cursor to the bottom of the editor |
-
----
-
 ## ⚙️ Configuration
 
 Registro configuration is loaded in layers: **Defaults ➡️ TOML Configuration ➡️ Environment Variables ➡️ CLI Flags**.
