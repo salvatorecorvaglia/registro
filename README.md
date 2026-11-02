@@ -10,7 +10,7 @@
 
 ---
 
-## ✨ Features
+## Features ✨
 
 - **🎹 Keyboard-First Layout**: Fully navigatable using Vim keys or custom layout keymaps.
 - **⚡ Asynchronous Execution Engine**: Run queries in the background. Long-running queries will never freeze the UI, and can be cancelled with a single keystroke (`Ctrl+B`).
@@ -34,7 +34,7 @@ Registro is database-agnostic and loads drivers dynamically via optional extras.
 
 ---
 
-## 🚀 Installation
+## Installation
 
 Registro requires **Python 3.13 or newer**. It is recommended to install using `pipx` or `uv` to keep dependencies isolated.
 
@@ -57,7 +57,7 @@ pipx install "registro-db[duckdb]"
 
 ---
 
-## 📖 Quick Start
+## Quick Start 🚀
 
 You can run queries one-shot from the shell or jump into the interactive terminal user interface.
 
@@ -217,22 +217,22 @@ export REGISTRO_DSN="postgres://user:pass@localhost:5432/my_db"
 
 ---
 
-## 🤝 Contributing
+## Contributing 🤝
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## 📜 Changelog
+## Changelog 📜
 
 Detailed release history and version changes can be found in [CHANGELOG.md](CHANGELOG.md).
 
-## 🔐 Security
+## Security 🔐
 
 If you discover a security vulnerability, please see our [Security Policy](SECURITY.md).
 
-## 📝 License
+## License 📝
 
 Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
----
+## Author ✍️
 
-**Author**: [Salvatore Corvaglia](https://github.com/salvatorecorvaglia)
+[Salvatore Corvaglia](https://github.com/salvatorecorvaglia)
