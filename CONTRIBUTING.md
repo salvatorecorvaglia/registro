@@ -4,37 +4,6 @@ Thank you for your interest in contributing to **Registro**! We welcome contribu
 
 ---
 
-## 🛠️ Development Setup
-
-Registro uses [uv](https://github.com/astral-sh/uv) for fast, modern Python package management and workflow orchestration.
-
-### Prerequisites
-
-- **Python 3.13 or newer**
-- **uv** (Install via `curl -LsSf https://astral.sh/uv/install.sh | sh` or your package manager)
-
-### Quick Start
-
-1. **Fork and Clone the Repository**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/registro.git
-   cd registro
-   ```
-
-2. **Synchronize Dependencies**
-   Initialize the virtual environment and install all packages (including development packages and all database extras):
-   ```bash
-   uv sync --all-extras --dev
-   ```
-   *Alternatively, run `./scripts/dev.sh` to initialize the environment.*
-
-3. **Activate the Environment**
-   ```bash
-   source .venv/bin/activate
-   ```
-
----
-
 ## ⚙️ Coding Standards & Tools
 
 We use strict quality gates to maintain codebase health. All of these run automatically on CI, but you should run them locally before submitting changes.
