@@ -24,13 +24,15 @@ dependencies = [
     "textual>=0.83",
     "rich>=13.7",
     "rapidfuzz>=3.14.6",
-    "typer>=0.27.2",
+    "typer>=0.29.1",
     "packaging>=24.0",
-    "duckdb==1.5.6",
+    "duckdb==2.0.0",
 ]
 
 [project.optional-dependencies]
-duckdb = ["duckdb>=1.1"]
+duckdb = [
+    "duckdb>=2.0.0",
+]
 # aiosqlite is already a core dependency (the query history uses it); the
 # extra stays so ``registro-db[sqlite]`` keeps working.
 sqlite = ["aiosqlite>=0.20"]
@@ -38,7 +40,7 @@ postgres = ["asyncpg>=0.29"]
 # ``cryptography`` is only needed for MySQL 8's caching_sha2_password auth.
 mysql = ["asyncmy2>=0.2.20", "cryptography>=50.0.1"]
 all = [
-    "duckdb>=1.1",
+    "duckdb>=2.0.0",
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "asyncmy2>=0.2.20",
@@ -54,8 +56,8 @@ Documentation = "https://github.com/salvatorecorvaglia/registro#readme"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3",
-    "pytest-asyncio>=0.24",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
     "pytest-cov>=5.0",
     "ruff==0.17.5",
     "mypy>=2.4.1",
