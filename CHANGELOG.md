@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade DuckDB to `2.0.0` and align the DuckDB and all-driver extras with that minimum version.
+- Raise minimum Pydantic and Typer versions to `2.14.3` and `0.29.1`; refresh the Python lockfile.
+- Update development tooling to pytest `9.2.0`, pytest-asyncio `1.5.0`, Ruff `0.17.5`, and mypy `2.4.1`.
+- Streamline the README and contribution guide.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added
