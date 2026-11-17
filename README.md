@@ -10,14 +10,6 @@
 
 ---
 
-## Homebrew
-
-Stable releases are distributed through the personal tap:
-
-```sh
-brew install salvatorecorvaglia/tap/registro
-```
-
 ## Features ✨
 
 - **🎹 Keyboard-First Layout**: Fully navigatable using Vim keys or custom layout keymaps.

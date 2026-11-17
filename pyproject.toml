@@ -38,15 +38,15 @@ duckdb = [
 sqlite = ["aiosqlite>=0.20"]
 postgres = ["asyncpg>=0.29"]
 # ``cryptography`` is only needed for MySQL 8's caching_sha2_password auth.
-# Cap it below 49: 49.0.0 dropped the universal2 macOS wheels, so the
-# darwin_amd64 Homebrew wheelhouse has no binary to install on Intel Macs.
-mysql = ["asyncmy2>=0.2.20", "cryptography>=48.0.1,<49"]
+# Cap it below 49: 49.0.0 dropped the universal2 macOS wheels, so Intel Macs
+# have no binary wheel to install.
+mysql = ["asyncmy2>=0.2.20", "cryptography>=50.0.2,<49"]
 all = [
     "duckdb>=2.0.0",
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "asyncmy2>=0.2.20",
-    "cryptography>=48.0.1,<49",
+    "cryptography>=50.0.2,<49",
 ]
 
 [project.scripts]

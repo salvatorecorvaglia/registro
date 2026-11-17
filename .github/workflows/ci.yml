@@ -119,13 +119,3 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
-
-  homebrew-tests:
-    name: Homebrew manifest contracts
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - run: python3 -m unittest discover -s tests/homebrew -v
