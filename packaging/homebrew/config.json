@@ -1,0 +1,8 @@
+{
+  "name": "registro",
+  "kind": "python",
+  "description": "Terminal database workspace",
+  "title": "Registro",
+  "wheel": "registro_db",
+  "test": "version"
+}
