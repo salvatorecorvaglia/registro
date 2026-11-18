@@ -40,13 +40,13 @@ postgres = ["asyncpg>=0.29"]
 # ``cryptography`` is only needed for MySQL 8's caching_sha2_password auth.
 # Cap it below 49: 49.0.0 dropped the universal2 macOS wheels, so Intel Macs
 # have no binary wheel to install.
-mysql = ["asyncmy2>=0.2.20", "cryptography>=50.0.2,<49"]
+mysql = ["asyncmy2>=0.2.20", "cryptography>=50.0.2,<51"]
 all = [
     "duckdb>=2.0.0",
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "asyncmy2>=0.2.20",
-    "cryptography>=50.0.2,<49",
+    "cryptography>=50.0.2,<51",
 ]
 
 [project.scripts]
