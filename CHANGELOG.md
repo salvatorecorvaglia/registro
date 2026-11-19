@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Changed
+
+- Raise the Typer minimum to `0.29.2`, update the optional MySQL cryptography dependency to `>=50.0.2,<51`, and refresh the Python lockfile.
+- Add weekly Dependabot checks for GitHub Actions and uv dependencies; refresh CI actions.
+- Preserve tag-triggered CI runs, serialize publication workflows per ref, and set explicit release validation and publication timeouts.
+
+### Fixed
+
+- Run required CI checks for Markdown-only pull requests.
+- Correct the conflicting cryptography version bounds so the MySQL and all extras can be resolved.
+
 ## [1.3.0] - 2026-11-17
 
 ### Changed
